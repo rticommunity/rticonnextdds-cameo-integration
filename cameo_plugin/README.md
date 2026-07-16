@@ -56,6 +56,9 @@ cd cameo_plugin
 build.bat
 ```
 
+Note: you can run `<Connext Install Dir>\resource\scripts\rtisetenv_<arch>.bat`
+to configure everything related to RTI Connext.
+
 For a debug build (links against `nddsjavad.jar`):
 
 ```bat
@@ -72,21 +75,16 @@ build.bat debug
 ## Native library setup (required)
 
 The Connext Java API (`nddsjava.jar`) uses JNI and depends on native DLLs in
-`%NDDSHOME%\lib\<arch>\`:
-
-| Architecture folder | Toolchain |
-|---|---|
-| `x64Win64VS2017` | Visual Studio 2017 (most common for 7.x) |
-| `x64Win64VS2019` | Visual Studio 2019 |
-| `x64Win64VS2022` | Visual Studio 2022 |
+`%NDDSHOME%\lib\<arch>\`. For example `%NDDSHOME%\lib\x64Win64VS2017`.
 
 **Add the correct folder to the Windows system `PATH`** before launching CAMEO:
+
+Note: if you have run `rtisetenv_<arch>.bat` script, this step is not required.
 
 ```bat
 :: Example — adjust the architecture suffix as needed
 set PATH=%NDDSHOME%\lib\x64Win64VS2017;%PATH%
 ```
-
 Or set it permanently via **System Properties → Environment Variables → PATH**.
 
 > The plugin also attempts to set `java.library.path` at runtime. On JDK 17+
@@ -180,6 +178,6 @@ To override the config path entirely, add to `<CAMEO_HOME>\bin\cameo.vmoptions`:
 | `Tools → RTI Connext DDS` not visible | Plugin not installed | Verify folder name is `com.rti.connext.cameo` under `plugins\` |
 | `NDDSHOME is not set` warning on startup | Env var missing | Set `NDDSHOME` in system env before starting CAMEO |
 | `UnsatisfiedLinkError: nddsjava` | Native DLLs not found | Add `%NDDSHOME%\lib\x64Win64VS2017` to PATH |
-| `Unable to create DomainParticipant` | Domain ID conflict or Connext licence | Check `RTI_LICENSE_FILE`; run RTI Shapes Demo to verify Connext works |
+| `Unable to create DomainParticipant` | Domain ID conflict or Connext license | Check `RTI_LICENSE_FILE`; run RTI Shapes Demo to verify Connext works |
 | `No *.xml file found in …\resources` | XML config missing from plugin dir | Re-run `install.bat` or copy your XML file into `<plugin-dir>\resources\` |
 | `XML config not found at -Dcom.rti.connext.cameo.xmlConfig` | Property path wrong | Check the path in `cameo.vmoptions` |
