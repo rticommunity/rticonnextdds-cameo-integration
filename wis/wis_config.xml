@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  (c) Copyright, Real-Time Innovations, 2026.  All rights reserved.
+  RTI grants Licensee a license to use, modify, compile, and create derivative
+  works of the software solely for use with RTI Connext DDS. Licensee may
+  redistribute copies of the software provided that all such copies are subject
+  to this license. The software is provided "as is", with no warranty of any
+  type, including any warranty for fitness for any purpose. RTI is under no
+  obligation to maintain or support the software. RTI shall not be liable for
+  any incidental or consequential damages arising out of the use or inability
+  to use the software.
+-->
+
+<!--
+  RTI Web Integration Service (WIS) configuration for ShapeType.
+
+  NOTE: WIS auto-loads RTI_WEB_INTEGRATION_SERVICE.xml which already defines
+  ShapeType (color/x/y/shapesize). Do NOT redefine it here — that causes a
+  duplicate-name error. We only add the domain topics and the WIS application.
+  Where to find RTI_WEB_INTEGRATION_SERVICE:
+    - Executable : %NDDSHOME%\bin\rtiwebintegrationservice.bat (on PATH once
+                   the RTI Connext DDS install's bin\ directory is added, or
+                   the standard RTI Launcher environment is set up).
+    - Base config: %NDDSHOME%\resource\xml\RTI_WEB_INTEGRATION_SERVICE.xml
+                   (the file auto-loaded and referenced above; ships with
+                   RTI Connext DDS — no separate WIS install needed).
+
+  Start WIS with (default port 8080, or override with -port):
+      rtiwebintegrationservice -cfgFile wis_config.xml -cfgName ShapeWIS
+      rtiwebintegrationservice -cfgFile wis_config.xml -cfgName ShapeWIS -port 8080
+
+  REST base URL: http://localhost:8080/dds/rest1
+
+  Publish to Square topic:
+      POST http://localhost:8080/dds/rest1/applications/ShapeApplication/domain_participants/ShapeParticipant/publishers/Publisher/data_writers/SquareWriter
+      Content-Type: application/dds-web+json
+      Body: {"color":"BLUE","x":100,"y":200,"shapesize":30}
+-->
+<dds xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+     xsi:noNamespaceSchemaLocation="http://community.rti.com/schema/7.7.0/rti_web_integration_service.xsd">
+
+    <!-- ================================================================== -->
+    <!-- Domain                                                             -->
+    <!-- ShapeType is already defined by RTI_WEB_INTEGRATION_SERVICE.xml    -->
+    <!-- ================================================================== -->
+    <!--
+
+    <types>
+      <struct name="ShapeType" extensibility="appendable">
+        <member name="color"     type="string" stringMaxLength="128" key="true"/>
+        <member name="x"         type="int32"/>
+        <member name="y"         type="int32"/>
+        <member name="shapesize" type="int32"/>
+      </struct>
+    </types>
+      -->
+
+    <domain_library name="DomainLibrary">
+        <domain name="Domain0" domain_id="0">
+            <register_type name="ShapeType" type_ref="ShapeType"/>
+            <topic name="Square"   register_type_ref="ShapeType"/>
+            <topic name="Circle"   register_type_ref="ShapeType"/>
+            <topic name="Triangle" register_type_ref="ShapeType"/>
+        </domain>
+    </domain_library>
+
+    <!-- ================================================================== -->
+    <!-- Web Integration Service instance                                     -->
+    <!--                                                                      -->
+    <!-- application name → "applications" segment of the REST URL           -->
+    <!-- domain_participant name → "domain_participants" segment             -->
+    <!-- publisher name → "publishers" segment                               -->
+    <!-- data_writer name → "data_writers" segment                           -->
+    <!-- ================================================================== -->
+    <web_integration_service name="ShapeWIS">
+        <!-- Port is set on the command line: -port 8080 (default is 8080).    -->
+        <!-- <http_server> is not a valid child in WIS 7.7 \u2014 use -port flag.   -->
+        <application name="ShapeApplication">
+            <domain_participant name="ShapeParticipant"
+                                domain_ref="DomainLibrary::Domain0">
+                <publisher name="Publisher">
+                    <data_writer name="SquareWriter"   topic_ref="Square"/>
+                    <data_writer name="CircleWriter"   topic_ref="Circle"/>
+                    <data_writer name="TriangleWriter" topic_ref="Triangle"/>
+                </publisher>
+                <subscriber name="Subscriber">
+                    <data_reader name="SquareReader"   topic_ref="Square"/>
+                    <data_reader name="CircleReader"   topic_ref="Circle"/>
+                    <data_reader name="TriangleReader" topic_ref="Triangle"/>
+                </subscriber>
+            </domain_participant>
+        </application>
+    </web_integration_service>
+
+</dds>
