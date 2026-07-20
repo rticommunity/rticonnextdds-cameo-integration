@@ -1,0 +1,4 @@
+# Windows batch files must keep CRLF line endings — cmd.exe's parser can fail
+# with "The syntax of the command is incorrect." on multi-line parenthesized
+# blocks (e.g. for/if) when line endings are LF-only.
+*.bat text eol=crlf

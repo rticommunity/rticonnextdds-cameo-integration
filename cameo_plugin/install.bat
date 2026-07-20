@@ -23,11 +23,24 @@
 :: =============================================================================
 setlocal enabledelayedexpansion
 
-:: Strip any surrounding quotes that users may have included in the set command.
-set "CAMEO_HOME=%CAMEO_HOME:"=%"
-if "%CAMEO_HOME:~-1%"=="\" set "CAMEO_HOME=%CAMEO_HOME:~0,-1%"
-if defined NDDSHOME set "NDDSHOME=%NDDSHOME:"=%"
-if defined NDDSHOME if "%NDDSHOME:~-1%"=="\" set "NDDSHOME=%NDDSHOME:~0,-1%"
+:: Strip any surrounding quotes / trailing backslash that users may have
+:: included in the set command. Each variable must be guarded by "if defined"
+:: AND use delayed expansion (!VAR!) for the stripping itself. A variable
+:: that is genuinely undefined does NOT safely expand under %VAR:...%
+:: substitution syntax (find/replace or substring) — it can leave stray
+:: characters (e.g. a bare quote, or literally "~-1") in the command line,
+:: which corrupts the variable's value or breaks parsing outright with
+:: "The syntax of the command is incorrect." Guarding with "if defined" and
+:: using delayed expansion defers evaluation until the block actually runs
+:: (i.e. only when the variable really is set), avoiding this entirely.
+if defined CAMEO_HOME (
+    set "CAMEO_HOME=%CAMEO_HOME:"=%"
+    if "!CAMEO_HOME:~-1!"=="\" set "CAMEO_HOME=!CAMEO_HOME:~0,-1!"
+)
+if defined NDDSHOME (
+    set "NDDSHOME=%NDDSHOME:"=%"
+    if "!NDDSHOME:~-1!"=="\" set "NDDSHOME=!NDDSHOME:~0,-1!"
+)
 
 if "%CAMEO_HOME%"=="" (
     echo ERROR: CAMEO_HOME is not set.
@@ -103,7 +116,7 @@ if defined NDDSHOME (
         echo    !ARCH_DIR!
     )
 ) else (
-    echo    ^%%NDDSHOME^%%\lib\x64Win64VS2017    ^(or VS2019 / VS2022^)
+    echo    ^%%NDDSHOME^%%\lib\x64Win64VS2017
 )
 echo.
 echo  Add it permanently via:

@@ -18,6 +18,7 @@ cameo_plugin/
   plugin.xml                               CAMEO plugin descriptor
   build.bat                                Windows build script
   install.bat                              Deploy to CAMEO plugins directory
+  uninstall.bat                            Remove from CAMEO plugins directory
   src/com/rti/connext/cameo/
     RTIConnextPlugin.java                  Plugin entry point (extends Plugin)
     RTIConnextActionsConfigurator.java     Adds "RTI Connext DDS" to Tools menu
@@ -121,6 +122,22 @@ resources\          ← XML Application Creation config(s)
 
 > **Administrator privileges required** — `Program Files` is write-protected.
 > Run the command prompt as Administrator before calling `install.bat`.
+
+---
+
+## Uninstall
+
+```bat
+set CAMEO_HOME=C:\Program Files\Cameo Systems Modeler
+uninstall.bat
+```
+
+Removes `%CAMEO_HOME%\plugins\com.rti.connext.cameo\` entirely (`plugin.xml`,
+`lib\`, and `resources\`). Safe to re-run — if the folder doesn't exist it
+prints a message and exits without error.
+
+> **Administrator privileges required**, same as `install.bat`. Close CAMEO
+> System Modeler first if it's running, otherwise the jars may be locked.
 
 ---
 
