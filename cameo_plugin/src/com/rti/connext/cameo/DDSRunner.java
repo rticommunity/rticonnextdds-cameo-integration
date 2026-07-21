@@ -195,7 +195,8 @@ public class DDSRunner {
                             "DomainParticipantLibrary::SquareParticipant");
             if (participant == null) {
                 log("[RTI Connext] Publisher: failed to create DomainParticipant "
-                        + "from 'DomainParticipantLibrary::SquareParticipant'.");
+                        + "from 'DomainParticipantLibrary::SquareParticipant'. "
+                        + "Check that a valid RTI Connext DDS license is installed.");
                 return;
             }
 
@@ -297,7 +298,9 @@ public class DDSRunner {
                     .create_participant_from_config(
                             "DomainParticipantLibrary::SquareParticipant");
             if (participant == null) {
-                log("[RTI Connext] Subscriber: failed to create DomainParticipant.");
+                log("[RTI Connext] Subscriber: failed to create DomainParticipant "
+                        + "from 'DomainParticipantLibrary::SquareParticipant'. "
+                        + "Check that a valid RTI Connext DDS license is installed.");
                 return;
             }
 
