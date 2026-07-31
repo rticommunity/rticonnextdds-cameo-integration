@@ -24,8 +24,6 @@ import com.nomagic.magicdraw.actions.ActionsConfiguratorsManager;
 import com.nomagic.magicdraw.core.Application;
 import com.nomagic.magicdraw.plugins.Plugin;
 
-import com.rti.connext.cameo.actions.DDSTopicPublisher;
-
 import java.io.File;
 
 public class RTIConnextPlugin extends Plugin {
@@ -60,7 +58,6 @@ public class RTIConnextPlugin extends Plugin {
     @Override
     public boolean close() {
         DDSRunner.stopAll();
-        DDSTopicPublisher.shutdown();
         return true;
     }
 

@@ -142,6 +142,20 @@ if "!MD_JAR!"=="" (
 )
 
 :: ---------------------------------------------------------------------------
+:: 3b. Locate the Cameo Simulation Toolkit plugin dir (needed for
+::     DdsEngineListener.java, which uses com.nomagic.magicdraw.simulation.*
+::     classes — these live under the CST plugin's own lib\, not CAMEO_HOME\lib\).
+:: ---------------------------------------------------------------------------
+set "CST_PLUGIN_DIR=%CAMEO_HOME%\plugins\com.nomagic.magicdraw.simulation"
+if not exist "%CST_PLUGIN_DIR%\lib" (
+    echo ERROR: Cannot locate Cameo Simulation Toolkit plugin under
+    echo        %CST_PLUGIN_DIR%
+    echo        DdsEngineListener.java requires CST to be installed. If CST lives
+    echo        elsewhere on this machine, update CST_PLUGIN_DIR in build.bat.
+    exit /b 1
+)
+
+:: ---------------------------------------------------------------------------
 :: 4. Detect Windows architecture directory for native libraries
 ::    (informational — shown in README; not needed for compilation)
 :: ---------------------------------------------------------------------------
@@ -164,15 +178,27 @@ copy /Y "%NDDSJAVA_JAR%" build\nddsjava.jar >nul
 :: ---------------------------------------------------------------------------
 :: 7. Compile plugin Java sources
 ::    CAMEO 2024x splits its API across many JARs in lib\; use wildcard entry.
+::
+::    NOTE: this list is intentionally explicit (not a wildcard) — added the
+::    new com\rti\connext\cameo\actions\*.java files below (the DDS model
+::    action library: CreateJsonAction, AddStringKeyAction,
+::    PublishToDdsTopicAction, DDSTopicPublisher, JsonPayloadBuilder,
+::    DDSModelAction, plus the temporary TestDdsActionsMenuAction), and the
+::    new com\rti\connext\cameo\model\*.java files (ModelDdsScanner,
+::    TopicModel, DdsXmlGenerator, DdsEngineListener — scans the SysML model
+::    for Blocks/Signals/Topics, generates DDS XML config, and listens for
+::    SendSignalAction activations during simulation). If you add more source
+::    files later, they must be added here too, or switch this to a
+::    recursive dir /s /b *.java loop instead.
 :: ---------------------------------------------------------------------------
-set "CLASSPATH=build\nddsjava.jar;%CAMEO_HOME%\lib\*"
+set "CLASSPATH=build\nddsjava.jar;%CAMEO_HOME%\lib\*;%CST_PLUGIN_DIR%\lib\*;%CST_PLUGIN_DIR%\*"
 
 echo.
 echo Compiling plugin (%BUILD_MODE%)...
 echo   javac          : %JAVAC%
 echo   CAMEO md.jar   : %MD_JAR%
 echo   Connext JAR    : %NDDSJAVA_JAR%
-echo   Sources        : src\com\rti\connext\cameo\*.java
+echo   Sources        : src\com\rti\connext\cameo\*.java (+ actions\*.java, model\*.java)
 echo   Output dir     : build\classes\
 echo.
 
@@ -181,7 +207,19 @@ echo.
     src\com\rti\connext\cameo\RTIConnextActionsConfigurator.java ^
     src\com\rti\connext\cameo\ShapeTypePublisherAction.java ^
     src\com\rti\connext\cameo\ShapeTypeSubscriberAction.java ^
-    src\com\rti\connext\cameo\DDSRunner.java
+    src\com\rti\connext\cameo\DDSRunner.java ^
+    src\com\rti\connext\cameo\actions\DDSModelAction.java ^
+    src\com\rti\connext\cameo\actions\DDSTopicPublisher.java ^
+    src\com\rti\connext\cameo\actions\JsonPayloadBuilder.java ^
+    src\com\rti\connext\cameo\actions\CreateJsonAction.java ^
+    src\com\rti\connext\cameo\actions\AddStringKeyAction.java ^
+    src\com\rti\connext\cameo\actions\PublishToDdsTopicAction.java ^
+    src\com\rti\connext\cameo\actions\TestDdsActionsMenuAction.java ^
+    src\com\rti\connext\cameo\model\TopicModel.java ^
+    src\com\rti\connext\cameo\model\ModelDdsScanner.java ^
+    src\com\rti\connext\cameo\model\ScanModelForTopicsAction.java ^
+    src\com\rti\connext\cameo\model\DdsXmlGenerator.java ^
+    src\com\rti\connext\cameo\model\DdsEngineListener.java
 
 if errorlevel 1 (
     echo.

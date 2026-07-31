@@ -18,19 +18,13 @@
  *   Tools
  *     └─ RTI Connext DDS
  *           ├─ Start Shape Publisher   (toggles to "Stop Shape Publisher")
- *           ├─ Start Shape Subscriber  (toggles to "Stop Shape Subscriber")
- *           └─ Test: Create JSON -> Add Key -> Publish (Square)   [TEMPORARY —
- *                see TestDdsActionsMenuAction.java for removal instructions
- *                once CST wiring replaces this manual test entry point]
+ *           └─ Start Shape Subscriber  (toggles to "Stop Shape Subscriber")
  */
 package com.rti.connext.cameo;
 
 import com.nomagic.actions.AMConfigurator;
 import com.nomagic.actions.ActionsCategory;
 import com.nomagic.actions.ActionsManager;
-
-import com.rti.connext.cameo.actions.TestDdsActionsMenuAction;
-import com.rti.connext.cameo.model.ScanModelForTopicsAction;
 
 public class RTIConnextActionsConfigurator implements AMConfigurator {
 
@@ -40,10 +34,6 @@ public class RTIConnextActionsConfigurator implements AMConfigurator {
 
     private final ShapeTypePublisherAction  publisherAction  = new ShapeTypePublisherAction();
     private final ShapeTypeSubscriberAction subscriberAction = new ShapeTypeSubscriberAction();
-    // TEMPORARY — remove this field + the addAction() line below once CST
-    // wiring lets the new action classes run from an actual model Action.
-    private final TestDdsActionsMenuAction  testDdsActionsMenuAction = new TestDdsActionsMenuAction();
-    private final ScanModelForTopicsAction scanModelAction = new ScanModelForTopicsAction();
 
     @Override
     public void configure(ActionsManager manager) {
@@ -63,8 +53,6 @@ public class RTIConnextActionsConfigurator implements AMConfigurator {
         rtiMenu.setNested(true);
         rtiMenu.addAction(publisherAction);
         rtiMenu.addAction(subscriberAction);
-        rtiMenu.addAction(testDdsActionsMenuAction); // TEMPORARY, see above
-        rtiMenu.addAction(scanModelAction);
 
         toolsMenu.addAction(rtiMenu);
     }
