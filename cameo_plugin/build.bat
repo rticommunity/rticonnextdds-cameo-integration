@@ -166,8 +166,13 @@ for /d %%d in ("%NDDSHOME%\lib\x64Win64*") do (
 
 :: ---------------------------------------------------------------------------
 :: 5. Create output directories
+::    Wipe build\classes first — javac -d never deletes stale .class files
+::    for since-removed .java sources, and the packaging step below jars up
+::    everything under build\classes, so leftover classes from a deleted
+::    source file would silently ride along into RTIConnextPlugin.jar.
 :: ---------------------------------------------------------------------------
-if not exist build\classes mkdir build\classes
+if exist build\classes rmdir /s /q build\classes
+mkdir build\classes
 
 :: ---------------------------------------------------------------------------
 :: 6. Copy nddsjava.jar into build\ (plugin runtime dependency)
@@ -179,17 +184,22 @@ copy /Y "%NDDSJAVA_JAR%" build\nddsjava.jar >nul
 :: 7. Compile plugin Java sources
 ::    CAMEO 2024x splits its API across many JARs in lib\; use wildcard entry.
 ::
-::    NOTE: this list is intentionally explicit (not a wildcard) — added the
-::    new com\rti\connext\cameo\actions\*.java files below (the DDS model
-::    action library: CreateJsonAction, AddStringKeyAction,
-::    PublishToDdsTopicAction, DDSTopicPublisher, JsonPayloadBuilder,
-::    DDSModelAction, plus the temporary TestDdsActionsMenuAction), and the
-::    new com\rti\connext\cameo\model\*.java files (ModelDdsScanner,
-::    TopicModel, DdsXmlGenerator, DdsEngineListener — scans the SysML model
-::    for Blocks/Signals/Topics, generates DDS XML config, and listens for
-::    SendSignalAction activations during simulation). If you add more source
-::    files later, they must be added here too, or switch this to a
-::    recursive dir /s /b *.java loop instead.
+::    NOTE: this list is intentionally explicit (not a wildcard) —
+::    com\rti\connext\cameo\core\*.java (TopicModel, ModelTopicScanner,
+::    ScanModelForTopicsAction, JsonPayloadBuilder — backend-agnostic SysML
+::    model scanning, kept separate from any specific pub/sub backend) and
+::    com\rti\connext\cameo\dds\*.java (DDSTopicPublisher, DDSTopicSubscriber,
+::    DdsSubscriptionQueue, DdsXmlGenerator, GenerateDdsXmlAction,
+::    ImportQosProfileAction, DdsEngineListener — the RTI Connext DDS
+::    backend: generates DDS XML config, imports QoS profile XML into the
+::    model (this plugin's only WRITE path), publishes samples, listens for
+::    SendSignalAction activations during simulation, and (DDSTopicSubscriber/
+::    DdsSubscriptionQueue) receives inbound DDS samples and queues them for
+::    a Groovy polling script to inject back into a running simulation via
+::    ALH.sendSignal() — see scripts/PollDdsSubscriptionAndInject.groovy).
+::    If you add more source files later, they must
+::    be added here too, or switch this to a recursive dir /s /b *.java loop
+::    instead.
 :: ---------------------------------------------------------------------------
 set "CLASSPATH=build\nddsjava.jar;%CAMEO_HOME%\lib\*;%CST_PLUGIN_DIR%\lib\*;%CST_PLUGIN_DIR%\*"
 
@@ -198,28 +208,26 @@ echo Compiling plugin (%BUILD_MODE%)...
 echo   javac          : %JAVAC%
 echo   CAMEO md.jar   : %MD_JAR%
 echo   Connext JAR    : %NDDSJAVA_JAR%
-echo   Sources        : src\com\rti\connext\cameo\*.java (+ actions\*.java, model\*.java)
+echo   Sources        : src\com\rti\connext\cameo\*.java (+ core\*.java, dds\*.java)
 echo   Output dir     : build\classes\
 echo.
 
 "%JAVAC%" -d build\classes -classpath "%CLASSPATH%" ^
     src\com\rti\connext\cameo\RTIConnextPlugin.java ^
     src\com\rti\connext\cameo\RTIConnextActionsConfigurator.java ^
-    src\com\rti\connext\cameo\ShapeTypePublisherAction.java ^
-    src\com\rti\connext\cameo\ShapeTypeSubscriberAction.java ^
-    src\com\rti\connext\cameo\DDSRunner.java ^
-    src\com\rti\connext\cameo\actions\DDSModelAction.java ^
-    src\com\rti\connext\cameo\actions\DDSTopicPublisher.java ^
-    src\com\rti\connext\cameo\actions\JsonPayloadBuilder.java ^
-    src\com\rti\connext\cameo\actions\CreateJsonAction.java ^
-    src\com\rti\connext\cameo\actions\AddStringKeyAction.java ^
-    src\com\rti\connext\cameo\actions\PublishToDdsTopicAction.java ^
-    src\com\rti\connext\cameo\actions\TestDdsActionsMenuAction.java ^
-    src\com\rti\connext\cameo\model\TopicModel.java ^
-    src\com\rti\connext\cameo\model\ModelDdsScanner.java ^
-    src\com\rti\connext\cameo\model\ScanModelForTopicsAction.java ^
-    src\com\rti\connext\cameo\model\DdsXmlGenerator.java ^
-    src\com\rti\connext\cameo\model\DdsEngineListener.java
+    src\com\rti\connext\cameo\core\TopicModel.java ^
+    src\com\rti\connext\cameo\core\ModelTopicScanner.java ^
+    src\com\rti\connext\cameo\core\ScanModelForTopicsAction.java ^
+    src\com\rti\connext\cameo\core\JsonPayloadBuilder.java ^
+    src\com\rti\connext\cameo\dds\DDSTopicPublisher.java ^
+    src\com\rti\connext\cameo\dds\DDSTopicSubscriber.java ^
+    src\com\rti\connext\cameo\dds\DdsSubscriptionQueue.java ^
+    src\com\rti\connext\cameo\dds\DdsXmlGenerator.java ^
+    src\com\rti\connext\cameo\dds\ElementPickerUtil.java ^
+    src\com\rti\connext\cameo\dds\GenerateDdsXmlAction.java ^
+    src\com\rti\connext\cameo\dds\ImportQosProfileAction.java ^
+    src\com\rti\connext\cameo\dds\FumlValueBridge.java ^
+    src\com\rti\connext\cameo\dds\DdsEngineListener.java
 
 if errorlevel 1 (
     echo.

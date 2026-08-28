@@ -1,6 +1,6 @@
 /*
  * ScanModelForTopicsAction.java — Tools-menu action that runs
- * ModelDdsScanner against the currently open project and logs every
+ * ModelTopicScanner against the currently open project and logs every
  * discovered Topic and StructType to CAMEO's notification log.
  *
  * This is the fastest way to see the scanner's output against a real model
@@ -16,7 +16,7 @@
  * fails on that one line, that's the line to check against your local
  * <CAMEO_HOME>\openapi\docs.
  */
-package com.rti.connext.cameo.model;
+package com.rti.connext.cameo.core;
 
 import com.nomagic.uml2.ext.jmi.helpers.StereotypesHelper;
 import com.nomagic.magicdraw.actions.MDAction;
@@ -52,7 +52,7 @@ public class ScanModelForTopicsAction extends MDAction {
 
         TopicModel result;
         try {
-            result = ModelDdsScanner.scan(root);
+            result = ModelTopicScanner.scan(root);
         } catch (Exception ex) {
             log("[DDS Scan] FAILED: " + ex);
             return;

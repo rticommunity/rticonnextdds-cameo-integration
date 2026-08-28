@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dds xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://community.rti.com/schema/7.5.0/rti_routing_service.xsd" version="7.5.0">
+    <types>
+      <!-- Literal names AND order/values now taken from a live [DDS Scan]
+           log against the real model (ModelTopicScanner.registerEnumType()
+           logs "Enumeration '...' — literals: [...]" in
+           Enumeration.getOwnedLiteral() order, which is exactly the order
+           DdsXmlGenerator.appendEnums() assigns sequential values in) —
+           confirmed real, not guessed. Five literals, not four as first
+           assumed from the gap analysis alone (CARTESIAN_SENSOR_LOCAL was
+           missing from that first pass). -->
+      <enum name="MeasurementFrameEnum">
+        <enumerator name="POLAR_SENSOR_LOCAL" value="0"/>
+        <enumerator name="CARTESIAN_SENSOR_LOCAL" value="1"/>
+        <enumerator name="WGS84_GEODETIC" value="2"/>
+        <enumerator name="BEARING_ONLY" value="3"/>
+        <enumerator name="BEARING_RANGE_ESTIMATE" value="4"/>
+      </enum>
+
+      <!-- Confirmed real via the same live [DDS Scan] log — matches what
+           was already guessed here, no change needed. -->
+      <enum name="SensorModalityEnum">
+        <enumerator name="RADAR" value="0"/>
+        <enumerator name="EO_IR" value="1"/>
+        <enumerator name="ACOUSTIC" value="2"/>
+      </enum>
+
+      <!-- Field-by-field identical to the real, freshly-regenerated
+           SensorReport_data struct (pasted directly from CAMEO's own
+           redeployed DDS_Schema.xml) — including dropping the
+           stringMaxLength="256" this file originally guessed on the string
+           fields; the real struct leaves them unbounded, and there's no
+           reason to risk a bound mismatch when the real answer is known. -->
+      <struct name="SensorReport_data" extensibility="appendable">
+        <member name="declared_id" type="string"/>
+        <member name="sensor_id" type="string"/>
+        <member name="measurement_time" type="int32"/>
+        <member name="measurement_frame" type="nonBasic" nonBasicTypeName="MeasurementFrameEnum"/>
+        <member name="range_m" type="float64"/>
+        <member name="bearing_rad" type="float64"/>
+        <member name="elevation_rad" type="float64"/>
+        <member name="doppler_mps" type="float64"/>
+        <member name="snr_db" type="float64"/>
+        <member name="quality_flag" type="boolean"/>
+        <member name="sensor_modality" type="nonBasic" nonBasicTypeName="SensorModalityEnum"/>
+        <member name="object_class_hint" type="string"/>
+        <member name="reference_point" type="string"/>
+      </struct>
+    </types>
+
+    <domain_library name="DomainLibrary">
+      <!-- domain_id="0" confirmed correct against CAMEO's own freshly
+           regenerated DDS_Schema.xml — no longer a guess. -->
+      <domain name="Domain" domain_id="0">
+        <register_type name="SensorReport_data_Type" type_ref="SensorReport_data"/>
+        <topic name="SensorReport" register_type_ref="SensorReport_data_Type"/>
+      </domain>
+    </domain_library>
+
+    <!-- This participant's own name/config-entry name ("ExternalSensorReport
+         PublisherParticipant") is a purely local alias for this process's
+         own create_participant_from_config() lookup — it does NOT need to
+         match any participant name in CAMEO's own XML config. DDS discovery
+         matches on domain_id + Topic name + compatible type + compatible
+         QoS, never on participant/config names. -->
+    <domain_participant_library name="DomainParticipantLibrary">
+      <domain_participant name="ExternalSensorReportPublisherParticipant" domain_ref="DomainLibrary::Domain">
+        <publisher name="Publisher">
+          <data_writer name="SensorReportWriter" topic_ref="SensorReport"/>
+        </publisher>
+      </domain_participant>
+    </domain_participant_library>
+</dds>

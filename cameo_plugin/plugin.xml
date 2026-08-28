@@ -1,39 +1,10 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!--
-  (c) Copyright, Real-Time Innovations, 2026.  All rights reserved.
-  RTI grants Licensee a license to use, modify, compile, and create derivative
-  works of the software solely for use with RTI Connext DDS. Licensee may
-  redistribute copies of the software provided that all such copies are subject
-  to this license. The software is provided "as is", with no warranty of any
-  type, including any warranty for fitness for any purpose. RTI is under no
-  obligation to maintain or support the software. RTI shall not be liable for
-  any incidental or consequential damages arising out of the use or inability
-  to use the software.
--->
-
-<!--
-    RTI Connext DDS — CAMEO System Modeler 2024x Plugin Descriptor
-    Plugin ID  : com.rti.connext.cameo
-    Place this folder at:
-        <CAMEO_HOME>\plugins\com.rti.connext.cameo\
--->
-<plugin id="com.rti.connext.cameo"
-        name="RTI Connext DDS"
-        version="1.0.0"
-        provider-name="Real-Time Innovations"
-        class="com.rti.connext.cameo.RTIConnextPlugin">
-
+<plugin id="com.rti.connext.cameo" name="RTI Connext DDS" version="1.0.0" provider-name="Real-Time Innovations" class="com.rti.connext.cameo.RTIConnextPlugin">
     <requires>
         <api version="1.0"/>
+        <required-plugin id="SimulationToolkit" name="Cameo Simulation Toolkit" version="2024x Refresh3" internalVersion="202400000"/>
     </requires>
-
-    <!--
-        lib/RTIConnextPlugin.jar  — built by build.bat from src/
-        lib/nddsjava.jar          — copied from %NDDSHOME%\lib\java\ by build.bat
-    -->
     <runtime>
         <library name="lib/RTIConnextPlugin.jar"/>
         <library name="lib/nddsjava.jar"/>
     </runtime>
-
 </plugin>

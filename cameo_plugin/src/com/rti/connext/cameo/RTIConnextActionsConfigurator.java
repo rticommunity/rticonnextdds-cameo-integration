@@ -17,11 +17,9 @@
  * Menu structure:
  *   Tools
  *     └─ RTI Connext DDS
- *           ├─ Start Shape Publisher   (toggles to "Stop Shape Publisher")
- *           ├─ Start Shape Subscriber  (toggles to "Stop Shape Subscriber")
- *           └─ Test: Create JSON -> Add Key -> Publish (Square)   [TEMPORARY —
- *                see TestDdsActionsMenuAction.java for removal instructions
- *                once CST wiring replaces this manual test entry point]
+ *           ├─ Scan Model for DDS Topics
+ *           ├─ Generate DDS XML
+ *           └─ Import QoS Profile
  */
 package com.rti.connext.cameo;
 
@@ -29,8 +27,9 @@ import com.nomagic.actions.AMConfigurator;
 import com.nomagic.actions.ActionsCategory;
 import com.nomagic.actions.ActionsManager;
 
-import com.rti.connext.cameo.actions.TestDdsActionsMenuAction;
-import com.rti.connext.cameo.model.ScanModelForTopicsAction;
+import com.rti.connext.cameo.core.ScanModelForTopicsAction;
+import com.rti.connext.cameo.dds.GenerateDdsXmlAction;
+import com.rti.connext.cameo.dds.ImportQosProfileAction;
 
 public class RTIConnextActionsConfigurator implements AMConfigurator {
 
@@ -38,12 +37,9 @@ public class RTIConnextActionsConfigurator implements AMConfigurator {
     static final String RTI_MENU_ID   = "RTI_CONNEXT_DDS_MENU";
     static final String RTI_MENU_NAME = "RTI Connext DDS";
 
-    private final ShapeTypePublisherAction  publisherAction  = new ShapeTypePublisherAction();
-    private final ShapeTypeSubscriberAction subscriberAction = new ShapeTypeSubscriberAction();
-    // TEMPORARY — remove this field + the addAction() line below once CST
-    // wiring lets the new action classes run from an actual model Action.
-    private final TestDdsActionsMenuAction  testDdsActionsMenuAction = new TestDdsActionsMenuAction();
     private final ScanModelForTopicsAction scanModelAction = new ScanModelForTopicsAction();
+    private final GenerateDdsXmlAction generateDdsXmlAction = new GenerateDdsXmlAction();
+    private final ImportQosProfileAction importQosProfileAction = new ImportQosProfileAction();
 
     @Override
     public void configure(ActionsManager manager) {
@@ -61,10 +57,9 @@ public class RTIConnextActionsConfigurator implements AMConfigurator {
 
         ActionsCategory rtiMenu = new ActionsCategory(RTI_MENU_ID, RTI_MENU_NAME);
         rtiMenu.setNested(true);
-        rtiMenu.addAction(publisherAction);
-        rtiMenu.addAction(subscriberAction);
-        rtiMenu.addAction(testDdsActionsMenuAction); // TEMPORARY, see above
         rtiMenu.addAction(scanModelAction);
+        rtiMenu.addAction(generateDdsXmlAction);
+        rtiMenu.addAction(importQosProfileAction);
 
         toolsMenu.addAction(rtiMenu);
     }

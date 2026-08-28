@@ -16,7 +16,8 @@
  * Lifecycle:
  *   init()  — registers the RTI Connext menu under Tools, then attempts to
  *              load the Connext native libraries from %NDDSHOME%\lib\<arch>\.
- *   close() — stops any running DDS publisher/subscriber threads.
+ *   close() — tears down any cached DDS DomainParticipants/DataReaders
+ *              (DDSTopicPublisher, DDSTopicSubscriber).
  */
 package com.rti.connext.cameo;
 
@@ -24,7 +25,8 @@ import com.nomagic.magicdraw.actions.ActionsConfiguratorsManager;
 import com.nomagic.magicdraw.core.Application;
 import com.nomagic.magicdraw.plugins.Plugin;
 
-import com.rti.connext.cameo.actions.DDSTopicPublisher;
+import com.rti.connext.cameo.dds.DDSTopicPublisher;
+import com.rti.connext.cameo.dds.DDSTopicSubscriber;
 
 import java.io.File;
 
@@ -54,12 +56,12 @@ public class RTIConnextPlugin extends Plugin {
 
         Application.getInstance().getGUILog()
                 .log("[RTI Connext] Plugin initialised. "
-                        + "Use Tools → RTI Connext DDS to start publisher/subscriber.");
+                        + "Use Tools → RTI Connext DDS to scan the model for DDS topics.");
     }
 
     @Override
     public boolean close() {
-        DDSRunner.stopAll();
+        DDSTopicSubscriber.shutdown();
         DDSTopicPublisher.shutdown();
         return true;
     }

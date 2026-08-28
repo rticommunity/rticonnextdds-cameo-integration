@@ -16,7 +16,7 @@
  * (no pin-based chaining), this class can just be used internally by a
  * single action instead of being the hand-off object between three actions.
  */
-package com.rti.connext.cameo.actions;
+package com.rti.connext.cameo.core;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -54,6 +54,37 @@ public final class JsonPayloadBuilder {
             builder.rawFields.put(key, value); // keep raw (quoted-or-not) form as-is
         }
         return builder;
+    }
+
+    /** Parses a flat {"k":"v","k2":1} JSON object into a name -> value map
+     *  (String for quoted values, Long/Double for bare numbers, Boolean for
+     *  true/false, null for null) — the read-side counterpart to build().
+     *  Same flat-only limitation as fromExisting(): no nested objects/arrays,
+     *  no escaped quotes inside string values. Used by the inbound DDS
+     *  subscription path (PollDdsSubscriptionAndInject.groovy) to turn a
+     *  received sample's JSON back into field values before injecting them
+     *  via ALH.setValue(). */
+    public static Map<String, Object> parseFlat(String json) {
+        JsonPayloadBuilder raw = fromExisting(json);
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (Map.Entry<String, String> e : raw.rawFields.entrySet()) {
+            result.put(e.getKey(), coerce(e.getValue()));
+        }
+        return result;
+    }
+
+    private static Object coerce(String rawValue) {
+        if (rawValue.length() >= 2 && rawValue.startsWith("\"") && rawValue.endsWith("\"")) {
+            return stripQuotes(rawValue).replace("\\\"", "\"").replace("\\\\", "\\");
+        }
+        if ("true".equals(rawValue)) return Boolean.TRUE;
+        if ("false".equals(rawValue)) return Boolean.FALSE;
+        if ("null".equals(rawValue)) return null;
+        try {
+            return rawValue.contains(".") ? (Object) Double.valueOf(rawValue) : (Object) Long.valueOf(rawValue);
+        } catch (NumberFormatException ex) {
+            return rawValue; // not a recognized number shape — hand back the raw text
+        }
     }
 
     public JsonPayloadBuilder addString(String key, String value) {
