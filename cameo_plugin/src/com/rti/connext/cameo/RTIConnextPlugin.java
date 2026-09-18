@@ -27,6 +27,7 @@ import com.nomagic.magicdraw.plugins.Plugin;
 
 import com.rti.connext.cameo.dds.DDSTopicPublisher;
 import com.rti.connext.cameo.dds.DDSTopicSubscriber;
+import com.rti.connext.cameo.dds.DdsInboundInjector;
 
 import java.io.File;
 
@@ -63,6 +64,7 @@ public class RTIConnextPlugin extends Plugin {
     public boolean close() {
         DDSTopicSubscriber.shutdown();
         DDSTopicPublisher.shutdown();
+        DdsInboundInjector.shutdown();
         return true;
     }
 

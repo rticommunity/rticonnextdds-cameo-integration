@@ -53,4 +53,19 @@ public final class DdsSubscriptionQueue {
         Queue<PendingMessage> queue = QUEUES.get(topicName);
         return queue == null ? null : queue.poll();
     }
+
+    /** Discards any backlog queued for this topic. This queue is a static,
+     *  process-lifetime map with no simulation-run scoping of its own —
+     *  push() keeps happening on RTI's callback thread any time a live
+     *  reader exists, whether or not a simulation is currently running, and
+     *  nothing else in this class ever removes a message except pollNext().
+     *  Call this once at simulation bootstrap (see
+     *  RegisterDdsEngineListener.groovy) so a fresh run doesn't immediately
+     *  inject leftover samples queued before it started. */
+    public static void clear(String topicName) {
+        Queue<PendingMessage> queue = QUEUES.get(topicName);
+        if (queue != null) {
+            queue.clear();
+        }
+    }
 }

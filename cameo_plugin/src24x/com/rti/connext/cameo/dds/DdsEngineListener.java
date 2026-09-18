@@ -1,4 +1,12 @@
 /*
+ * DdsEngineListener.java — CAMEO 2024x variant. See
+ * src26x/.../DdsEngineListener.java for the 2026x port — same logic, updated
+ * for fUML.Semantics.* having moved to com.nomagic.magicdraw.simulation.fuml.*
+ * and operationCalled/behaviorCalled's ParameterValueList parameter having
+ * been replaced by List<ParameterValue> in that CST version (both confirmed
+ * via javap against the 2026x install). Picked up by build.bat; build_26x.bat
+ * picks up the src26x/ copy instead.
+ *
  * DdsEngineListener.java — publishes to DDS whenever a SendSignalAction on a
  * «DDS_Topic»-stereotyped Signal fires during a Cameo Simulation Toolkit run.
  *
@@ -404,6 +412,7 @@ public class DdsEngineListener extends SimulationExecutionListener implements En
         log("[DDS Listener] Simulation execution terminated — tearing down cached DDS participants.");
         DDSTopicSubscriber.shutdown();
         DDSTopicPublisher.shutdown();
+        DdsInboundInjector.shutdown();
     }
 
     // -------------------------------------------------------------------
@@ -635,8 +644,31 @@ public class DdsEngineListener extends SimulationExecutionListener implements En
             return;
         }
 
+        // CONFIRMED LIVE: GatedReport.system_time is declared "string" in the
+        // model but ALH hands back a java.lang.Double (whatever numeric
+        // literal the Opaque Behavior that set it produced, e.g.
+        // System.currentTimeMillis()). The old dispatch below picked
+        // serialization off raw's Java runtime class, not the DDS-declared
+        // type, so a Double landed as a bare JSON number
+        // ("system_time":1.789...E12) even though the receiving struct
+        // expects a quoted string there -- RTI's
+        // DDS_DynamicDataParser_parse_json_node rejected the whole payload
+        // with RETCODE_BAD_PARAMETER, silently killing every publish for
+        // this Signal. Checking field.primitiveType FIRST makes
+        // serialization follow the schema instead of whatever type the
+        // fUML runtime happened to box the value as.
+        if (field.isArray()) {
+            builder.addRaw(field.name, arrayToJson(field, raw));
+            return;
+        }
+
         if (raw == null) {
             builder.addRaw(field.name, "null");
+        } else if ("string".equals(field.primitiveType)) {
+            String stringValue = (raw instanceof EnumerationLiteral)
+                    ? ((EnumerationLiteral) raw).getName()
+                    : String.valueOf(raw);
+            builder.addString(field.name, stringValue);
         } else if (raw instanceof String) {
             builder.addString(field.name, (String) raw);
         } else if (raw instanceof Boolean || raw instanceof Number) {
@@ -648,6 +680,53 @@ public class DdsEngineListener extends SimulationExecutionListener implements En
                     + raw.getClass().getName() + " — sending toString() as a JSON string.");
             builder.addString(field.name, String.valueOf(raw));
         }
+    }
+
+    /**
+     * CONFIRMED LIVE: a fixed-size array field (e.g. GatedReport.Position,
+     * float64 arrayDimensions="2") comes back from FumlValueBridge as a
+     * java.util.ArrayList, which the old dispatch above had no case for --
+     * it fell into the "unexpected value type" branch and got serialized as
+     * a single JSON STRING holding the list's toString() (e.g.
+     * "\"[7.07, 7.07]\""), instead of a real JSON array ([7.07,7.07]).
+     * RTI's parser expects an actual array for an arrayDimensions member;
+     * the stringified form is exactly the second reason the live
+     * GatedReport publish was rejected with RETCODE_BAD_PARAMETER (the
+     * first, system_time, is fixed above -- this one would have been hit
+     * next once that one was fixed).
+     */
+    private String arrayToJson(TopicModel.Field field, Object raw) {
+        if (!(raw instanceof java.util.List)) {
+            if (raw != null) {
+                log("[DDS Listener]   array field '" + field.name + "' has unexpected value type "
+                        + raw.getClass().getName() + " — expected a List, sending empty array.");
+            }
+            return "[]";
+        }
+        java.util.List<?> list = (java.util.List<?>) raw;
+        StringBuilder json = new StringBuilder("[");
+        for (int i = 0; i < list.size(); i++) {
+            if (i > 0) json.append(",");
+            json.append(arrayElementToJson(list.get(i)));
+        }
+        json.append("]");
+        return json.toString();
+    }
+
+    private String arrayElementToJson(Object element) {
+        if (element == null) {
+            return "null";
+        } else if (element instanceof Boolean || element instanceof Number) {
+            return element.toString();
+        } else if (element instanceof EnumerationLiteral) {
+            return "\"" + escapeJsonString(((EnumerationLiteral) element).getName()) + "\"";
+        } else {
+            return "\"" + escapeJsonString(String.valueOf(element)) + "\"";
+        }
+    }
+
+    private static String escapeJsonString(String s) {
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private PendingPublish takePending(Signal signal) {
@@ -729,6 +808,7 @@ public class DdsEngineListener extends SimulationExecutionListener implements En
         // two termination hooks fires second) is just a no-op loop.
         DDSTopicSubscriber.shutdown();
         DDSTopicPublisher.shutdown();
+        DdsInboundInjector.shutdown();
     }
 
     @Override
@@ -743,7 +823,26 @@ public class DdsEngineListener extends SimulationExecutionListener implements En
 
     @Override
     public void valueChange(StructuredValue value, FeatureValue featureValue, Object oldValue, Object newValue) {
-        // high-frequency — intentionally not logged to avoid flooding the GUI log.
+        // ---- TEMPORARY DIAGNOSTIC — testing whether this fires at all for
+        // Set_Object_Value-driven writes (confirmed working for these
+        // already, unlike ALH.getValue() via an externally-constructed ALH —
+        // see appendField()/FumlValueBridge.getFieldValue()). featureValue.
+        // feature is a plain public StructuralFeature (standard UML2 type,
+        // NOT internal-marked at the class or field level — confirmed via
+        // javap -v), so reading its name here doesn't touch any new
+        // internal-API surface. If this fires with the right owner/feature/
+        // newValue for a Set_Object_Value write, DdsEngineListener can cache
+        // values here instead of calling ALH.getValue() at publish time —
+        // no polling, no Groovy script needed. Revert to silent once
+        // answered either way; this WILL be extremely high-frequency.
+        try {
+            String featureName = featureValue == null || featureValue.feature == null
+                    ? "?" : featureValue.feature.getName();
+            log("[DDS Listener DIAG] valueChange: owner=" + (value == null ? "null" : value.getClass().getName())
+                    + " feature=" + featureName + " oldValue=" + oldValue + " newValue=" + newValue);
+        } catch (Exception ex) {
+            log("[DDS Listener DIAG] valueChange diagnostic logging failed: " + ex);
+        }
     }
 
     @Override

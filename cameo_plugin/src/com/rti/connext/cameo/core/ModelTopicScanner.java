@@ -560,12 +560,12 @@ public final class ModelTopicScanner {
                 if (!StereotypesHelper.hasStereotype(prop, flowPropertyStereotype)) {
                     continue;
                 }
-                handleFlowProperty(block, prop);
+                handleFlowProperty(block, port, prop);
             }
         }
     }
 
-    private void handleFlowProperty(Class block, Property flowProperty) {
+    private void handleFlowProperty(Class block, Port port, Property flowProperty) {
         List<String> directionValues = StereotypesHelper.getStereotypePropertyValueAsString(
                 flowProperty, flowPropertyStereotype, FLOW_DIRECTION_TAG_NAME, false);
         String rawDirection = (directionValues == null || directionValues.isEmpty()) ? null : directionValues.get(0);
@@ -606,6 +606,7 @@ public final class ModelTopicScanner {
         }
         if (isIn && !topic.subscriberBlockNames.contains(block.getName())) {
             topic.subscriberBlockNames.add(block.getName());
+            topic.subscriberPorts.put(block.getName(), port.getName());
         }
     }
 

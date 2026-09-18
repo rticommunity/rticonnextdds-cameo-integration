@@ -1,190 +1,130 @@
-# RTI Connext DDS — CAMEO System Modeler 2024x Plugin
+# RTI Connext DDS — CAMEO System Modeler Plugin
 
-A CAMEO System Modeler 2024x plugin that runs the **ShapeType DynamicData**
-publisher and subscriber from `java_dynamicdata/` in-process, directly inside
-CAMEO's JVM. It loads Connext libraries from `%NDDSHOME%\lib\java` and the
-architecture-specific native directory under `%NDDSHOME%\lib\`.
+A CAMEO System Modeler plugin that connects a live SysML simulation to real
+RTI Connext DDS traffic: it scans a model for `«DDS_Topic»`-stereotyped
+Signals, generates a matching DDS XML Application Creation config, and — while
+a Cameo Simulation Toolkit (CST) run is active — publishes real DDS samples
+when a modeled Signal fires and injects real inbound DDS samples back into the
+simulation as live signals.
 
-The DDS XML Application Creation config is **not embedded** in the JAR — it is
-read at runtime from `<plugin-dir>/resources/`. Any `*.xml` file placed there
-is picked up automatically, making the plugin type-independent.
+Ships in two parallel builds: **2024x** (`build.bat`/`install.bat`, sources
+under `src/` + `src24x/`) and **2026x** (`build_26x.bat`/`install_26x.bat`,
+sources under `src/` + `src26x/`) — the two CST versions moved some fUML
+runtime types between packages, so each version gets its own small
+`dds`-package override; everything else is shared.
+
+**For the full design — every class, the design-time scan/generate flow, the
+simulation-time publish/subscribe pipeline, the required SysML/DDS profile
+shape, and the current list of known gaps — see
+[`architecture.md`](architecture.md).** This file only covers building,
+installing, and running it.
 
 ---
 
-## Directory layout
+## Tools menu
 
-```
-cameo_plugin/
-  plugin.xml                               CAMEO plugin descriptor
-  build.bat                                Windows build script
-  install.bat                              Deploy to CAMEO plugins directory
-  uninstall.bat                            Remove from CAMEO plugins directory
-  src/com/rti/connext/cameo/
-    RTIConnextPlugin.java                  Plugin entry point (extends Plugin)
-    RTIConnextActionsConfigurator.java     Adds "RTI Connext DDS" to Tools menu
-    ShapeTypePublisherAction.java          Start/Stop publisher action
-    ShapeTypeSubscriberAction.java         Start/Stop subscriber action
-    DDSRunner.java                         DDS logic (pub + sub background threads)
-  resources/
-    ShapeType.xml                          XML Application Creation config (deployed, not embedded)
-  build/                                   Populated by build.bat (gitignored)
-    classes/                               Compiled .class files
-    nddsjava.jar                           Copied from %NDDSHOME%\lib\java
-    RTIConnextPlugin.jar                   Packaged plugin classes
-```
+Once installed, CAMEO's **Tools** menu gets an **RTI Connext DDS** submenu
+with three actions:
+
+- **Scan Model for DDS Topics** — debug tool; logs every DDS Topic/type found
+  in the open project.
+- **Generate DDS XML** — finds a `«DDS_Domain»`-stereotyped package, scans it
+  for `«DDS_Topic»`-stereotyped Signals, optionally applies an imported
+  `«DDS_QosProfile»`, and writes a DDS XML Application Creation config file.
+- **Import QoS Profile** — reads an RTI Connext QoS profile XML file and
+  creates a corresponding `«DDS_QosProfile»` model element so `Generate DDS
+  XML` can offer it later.
+
+Simulation-time publish/inject happens automatically while a CST run is
+active — no menu action needed for that part; see `architecture.md` for how
+it's wired into the model (Groovy Opaque Behaviors + `DdsEngineListener`).
 
 ---
 
 ## Prerequisites
 
-| Requirement | Notes |
-|---|---|
-| **RTI Connext DDS 7.x** | `NDDSHOME` must be set |
-| **CAMEO System Modeler 2024x** | `CAMEO_HOME` must be set |
-| **JDK 17+** | CAMEO 2024x ships a JDK 17 at `%CAMEO_HOME%\jre`; set `RTIJDKHOME=%CAMEO_HOME%\jre` or ensure `javac` 17+ is on PATH |
+| Requirement | 2024x | 2026x |
+|---|---|---|
+| **RTI Connext DDS 7.x** | `NDDSHOME` must be set | same |
+| **CAMEO / Magic Systems of Systems Architect** | `CAMEO_HOME` — 2024x install root | `CAMEO_HOME` — 2026x (Magic Cyber Systems Engineer) install root |
+| **JDK** | 17+ (`RTIJDKHOME`, or `javac` 17+ on PATH) | 21+ (`RTIJDKHOME`, or `javac` 21+ on PATH) — 2026x's own bundled `jre\` has no compiler |
 
 ---
 
 ## Build
 
-Open a command prompt and run:
+**2024x:**
 
 ```bat
 set NDDSHOME=C:\RTI\rti_connext_dds-7.7.0
-set CAMEO_HOME=C:\Program Files\Cameo Systems Modeler
-set RTIJDKHOME=%CAMEO_HOME%\jre
+set CAMEO_HOME=C:\Program Files\Magic Systems of Systems Architect
+set RTIJDKHOME=<path to a JDK 17+>
 cd cameo_plugin
 build.bat
 ```
 
-Note: you can run `<Connext Install Dir>\resource\scripts\rtisetenv_<arch>.bat`
-to configure everything related to RTI Connext.
-
-For a debug build (links against `nddsjavad.jar`):
+**2026x:**
 
 ```bat
-build.bat debug
+set NDDSHOME=C:\RTI\rti_connext_dds-7.7.0
+set CAMEO_HOME=C:\Program Files\Magic Cyber Systems Engineer
+set RTIJDKHOME=<path to a JDK 21+>
+cd cameo_plugin
+build_26x.bat
 ```
 
-`build.bat` will:
-1. Copy `%NDDSHOME%\lib\java\nddsjava.jar` → `build\nddsjava.jar`
-2. Compile all sources against the CAMEO API JARs in `%CAMEO_HOME%\lib\` and `nddsjava.jar`
-3. Package compiled classes into `build\RTIConnextPlugin.jar` (no XML embedded)
+Each script copies `%NDDSHOME%\lib\java\nddsjava.jar` into its own `build\` /
+`build_26x\` output directory, compiles the shared `src/` sources plus that
+version's `src24x/`/`src26x/` override, and packages
+`build\RTIConnextPlugin.jar` / `build_26x\RTIConnextPlugin.jar`. Pass `debug`
+as an argument to either script to link against `nddsjavad.jar` instead.
 
 ---
 
 ## Native library setup (required)
 
-The Connext Java API (`nddsjava.jar`) uses JNI and depends on native DLLs in
-`%NDDSHOME%\lib\<arch>\`. For example `%NDDSHOME%\lib\x64Win64VS2017`.
-
-**Add the correct folder to the Windows system `PATH`** before launching CAMEO:
-
-Note: if you have run `rtisetenv_<arch>.bat` script, this step is not required.
+The Connext Java API (`nddsjava.jar`) needs its native DLLs
+(`%NDDSHOME%\lib\<arch>\`, e.g. `x64Win64VS2017`) findable before CAMEO
+starts:
 
 ```bat
-:: Example — adjust the architecture suffix as needed
 set PATH=%NDDSHOME%\lib\x64Win64VS2017;%PATH%
 ```
-Or set it permanently via **System Properties → Environment Variables → PATH**.
 
-> The plugin also attempts to set `java.library.path` at runtime. On JDK 17+
-> the JVM restricts this reflection trick; if it fails a warning is shown in
-> the CAMEO notification log — setting the PATH is the reliable fallback.
-
-Alternatively, add the JVM argument to CAMEO's startup configuration.
-For CAMEO 2024x on Windows, edit (or create) `<CAMEO_HOME>\bin\cameo.vmoptions`
-and add one line:
-
-```
--Djava.library.path=C:\RTI\rti_connext_dds-7.7.0\lib\x64Win64VS2017
-```
+...or add `-Djava.library.path=<that path>` to `<CAMEO_HOME>\bin\*.vmoptions`.
+`setup_rti_config.bat`/`setup_rti_config_26x.bat` automate this (and the
+`RTI_LICENSE_FILE` env var) for a given machine — see those scripts.
 
 ---
 
 ## Install
 
-After a successful build, run **from the `cameo_plugin\` directory**:
+Requires **Administrator privileges** (writes under `Program Files`).
 
 ```bat
-set CAMEO_HOME=C:\Program Files\Cameo Systems Modeler
-install.bat
+set CAMEO_HOME=<CAMEO or MCSE install root, matching the build above>
+install.bat        :: or install_26x.bat
 ```
 
-This copies the following into `%CAMEO_HOME%\plugins\com.rti.connext.cameo\`:
+Copies `plugin.xml` (or `plugin_26x.xml`) and the matching `build*\*.jar`
+into `%CAMEO_HOME%\plugins\com.rti.connext.cameo\`. `uninstall.bat` removes
+that folder entirely; safe to re-run.
 
-```
-plugin.xml
-lib\RTIConnextPlugin.jar
-lib\nddsjava.jar
-resources\          ← XML Application Creation config(s)
-```
-
-> **Administrator privileges required** — `Program Files` is write-protected.
-> Run the command prompt as Administrator before calling `install.bat`.
+`run_cameo.bat` launches whichever of `bin\msosa.exe` (2024x) or
+`bin\mcse.exe` (2026x) exists under `%CAMEO_HOME%`, for convenience.
 
 ---
 
-## Uninstall
+## Required model shape
 
-```bat
-set CAMEO_HOME=C:\Program Files\Cameo Systems Modeler
-uninstall.bat
-```
-
-Removes `%CAMEO_HOME%\plugins\com.rti.connext.cameo\` entirely (`plugin.xml`,
-`lib\`, and `resources\`). Safe to re-run — if the folder doesn't exist it
-prints a message and exits without error.
-
-> **Administrator privileges required**, same as `install.bat`. Close CAMEO
-> System Modeler first if it's running, otherwise the jars may be locked.
-
----
-
-## Using the plugin
-
-1. Start CAMEO System Modeler.
-2. Open the **Tools** menu — a **RTI Connext DDS** sub-menu should appear.
-3. Click **Start Shape Publisher** to begin writing RED squares on DDS domain 0
-   (Square topic). The label changes to *Stop Shape Publisher*.
-4. Click **Start Shape Subscriber** to receive samples; each sample is printed
-   in the CAMEO notification log (`[RTI Connext] Received: …`).
-5. Click the stop entries to cleanly shut down the DDS participants.
-
-Both actions toggle: clicking again stops the running thread and cleans up the
-`DomainParticipant`.
-
----
-
-## How it works
-
-```
-CAMEO JVM
-  └─ RTIConnextPlugin (Plugin.init)
-       └─ RTIConnextActionsConfigurator (AMConfigurator)
-            ├─ ShapeTypePublisherAction  ──► DDSRunner.startPublisher()
-            │                                 Thread: RTIConnext-Publisher
-            │                                   DomainParticipant (SquareParticipant)
-            │                                   DynamicDataWriter (Publisher::SquareWriter)
-            │                                   write loop (500 ms)
-            └─ ShapeTypeSubscriberAction ──► DDSRunner.startSubscriber()
-                                              Thread: RTIConnext-Subscriber
-                                                DomainParticipant (SquareParticipant)
-                                                DynamicDataReader (Subscriber::SquareReader)
-                                                WaitSet + StatusCondition receive loop
-```
-
-`ShapeType.xml` (deployed to `<plugin-dir>/resources/`) is read at runtime.
-The plugin scans that folder for the first `*.xml` file (alphabetically) and
-passes its `file:///` URL to the `DomainParticipantFactory`. To use a
-different type, replace `resources/ShapeType.xml` with your own XML
-Application Creation file — no rebuild needed.
-
-To override the config path entirely, add to `<CAMEO_HOME>\bin\cameo.vmoptions`:
-
-```
--Dcom.rti.connext.cameo.xmlConfig=C:\path\to\MyType.xml
-```
+The model needs a `«DDS_Domain»` package containing `«DDS_Topic»`-stereotyped
+Signals, each typed by a Block whose properties become the DDS struct's
+members (`«DDS_Member»` stereotype for key/max-length tags), and Blocks
+wired via Ports/InterfaceBlocks/FlowProperties to mark which Block
+publishes/subscribes to which topic. **See `architecture.md`'s "Required
+SysML/DDS profile shape" section for the full, exact stereotype/tag
+reference** — this is the part most worth reading before modeling a new
+service against this plugin.
 
 ---
 
@@ -192,9 +132,13 @@ To override the config path entirely, add to `<CAMEO_HOME>\bin\cameo.vmoptions`:
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `Tools → RTI Connext DDS` not visible | Plugin not installed | Verify folder name is `com.rti.connext.cameo` under `plugins\` |
-| `NDDSHOME is not set` warning on startup | Env var missing | Set `NDDSHOME` in system env before starting CAMEO |
-| `UnsatisfiedLinkError: nddsjava` | Native DLLs not found | Add `%NDDSHOME%\lib\x64Win64VS2017` to PATH |
-| `Unable to create DomainParticipant` | Domain ID conflict or Connext license | Check `RTI_LICENSE_FILE`; run RTI Shapes Demo to verify Connext works |
-| `No *.xml file found in …\resources` | XML config missing from plugin dir | Re-run `install.bat` or copy your XML file into `<plugin-dir>\resources\` |
-| `XML config not found at -Dcom.rti.connext.cameo.xmlConfig` | Property path wrong | Check the path in `cameo.vmoptions` |
+| `Tools → RTI Connext DDS` not visible | Plugin not installed for the CAMEO version you're running | Confirm you ran `install.bat` (2024x) vs `install_26x.bat` (2026x) matching the running app |
+| `NDDSHOME is not set` / `CAMEO_HOME is not set` | Env var missing at build time | Set both before running `build.bat`/`build_26x.bat` |
+| `UnsatisfiedLinkError: nddsjava` | Native DLLs not found | Add `%NDDSHOME%\lib\x64Win64VS2017` (or your arch) to PATH before starting CAMEO |
+| `RTI Connext DDS No source for License information` / `Failed to create DomainParticipant` | `RTI_LICENSE_FILE` not set for the process | Set `RTI_LICENSE_FILE` before starting CAMEO (or the standalone tool hitting this) |
+| `class file has wrong version` during build | Wrong JDK for the CAMEO version | 2024x needs a JDK 17+ compiler, 2026x needs 21+ — set `RTIJDKHOME` explicitly |
+| Generated XML fails to load / `RTIXMLObject_addChild` duplicate-name error | A payload Block shares its name with its Signal | See `architecture.md`'s `DdsXmlGenerator.java` section — `register_type` names get a `_Type` suffix specifically to avoid this |
+
+For anything not covered here — how a specific class works, why a design
+decision was made, or the current list of known gaps — `architecture.md` is
+the maintained source of truth.

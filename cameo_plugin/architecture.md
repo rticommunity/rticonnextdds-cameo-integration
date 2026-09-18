@@ -5,10 +5,10 @@ each package/class does, how design-time model scanning connects to DDS XML
 generation, how runtime simulation is (partially) wired to live DDS
 publishing, and where the known gaps are.
 
-It reflects the code as it exists in `src/` today, not the (stale)
-`cameo_plugin/README.md`, which still documents an earlier ShapeType
-publisher/subscriber design that has since been replaced — see
-[Relationship to the README and `old_files/`](#relationship-to-the-readme-and-old_files).
+It reflects the code as it exists in `src/` today. `cameo_plugin/README.md`
+covers building/installing/running; this document is the deeper reference —
+see [Relationship to the README and `old_files/`](#relationship-to-the-readme-and-old_files)
+for that split's history.
 
 ---
 
@@ -25,9 +25,10 @@ publisher/subscriber design that has since been replaced — see
 9. [Inbound (subscribe) pipeline](#inbound-subscribe-pipeline--sensorreport-confirmed-working-end-to-end)
 10. [Required SysML/DDS profile shape](#required-sysmldds-profile-shape)
 11. [Build, package, and deploy](#build-package-and-deploy)
-12. [Known gaps and TODOs](#known-gaps-and-todos)
-13. [The "core is backend-agnostic" caveat](#the-core-is-backend-agnostic-caveat)
-14. [Relationship to the README and `old_files/`](#relationship-to-the-readme-and-old_files)
+12. [Beyond the plugin — the full demo pipeline](#beyond-the-plugin--the-full-demo-pipeline-as-of-2026-09-14)
+13. [Known gaps and TODOs](#known-gaps-and-todos)
+14. [The "core is backend-agnostic" caveat](#the-core-is-backend-agnostic-caveat)
+15. [Relationship to the README and `old_files/`](#relationship-to-the-readme-and-old_files)
 
 ---
 
@@ -118,9 +119,12 @@ resources/ShapeType.xml       A *demo* XML config, unrelated to Generate DDS XML
 scripts/RegisterDdsEngineListener.groovy
                                Groovy snippet the user pastes into a CST Opaque
                                Behavior to register DdsEngineListener at sim start
-old_files/                    Pre-refactor snapshot, not part of the build — see
-                               "Relationship to the README and old_files/"
 ```
+
+(`old_files/`, a pre-refactor snapshot, and `test_tools/`, the standalone
+external DDS publishers used to test the inbound pipeline, have both been
+moved out of this repository — see "Relationship to the README and
+`old_files/`" and "Beyond the plugin" below.)
 
 The old `com.rti.connext.cameo.model` and `com.rti.connext.cameo.actions`
 packages are gone — every file that used to live there moved into `core/`
@@ -501,9 +505,7 @@ complete RTI Connext DDS XML Application Creation document as a string
    a `<domain_participant_qos><participant_name><name>` block only when
    `participantName` is set; a `<datareader_qos><history><depth>` block
    only when `historyDepth` is set — matches the reference `ShapeType.xml`
-   structure. No cross-reference from `<domain_participant>` back to this
-   profile is emitted — the reference file doesn't do that either;
-   `is_default_qos="true"` is how Connext auto-applies a profile.
+   structure.
 3. **`<domain_library><domain domain_id="...">`** — one `<register_type>`
    per struct, one `<topic>` per `Topic`.
 4. **`<domain_participant_library>`** — one `<domain_participant>` per
@@ -511,7 +513,19 @@ complete RTI Connext DDS XML Application Creation document as a string
    with a `<publisher>`/`<data_writer>` and/or `<subscriber>`/`<data_reader>`
    inside, named `"<topic>Writer"`/`"<topic>Reader"` — the same naming
    convention `DDSTopicPublisher` and `DdsEngineListener` assume when
-   resolving `dataWriterName` at runtime.
+   resolving `dataWriterName` at runtime. When `qosProfile` is non-null,
+   each generated `<data_writer>`/`<data_reader>` now also gets a nested
+   `<datawriter_qos base_name="QosLibrary::<profileName>"/>` /
+   `<datareader_qos base_name="...">` reference (added 2026-09-14) — see
+   the "QoS profile default doesn't apply to XML-declared entities" gap
+   below for why. The previous design assumed `is_default_qos="true"`
+   alone was enough to auto-apply the profile to statically-declared
+   `<data_writer>`/`<data_reader>` elements. **That's false, confirmed via
+   live testing** — `is_default_qos` has no effect on entities declared
+   this way; only an explicit `base_name` reference does. Without this
+   fix, a model's own `«DDS_QosProfile»` (e.g. `history_depth`) was
+   silently never actually applied to any generated reader/writer,
+   regardless of `is_default`.
 
 ### `ElementPickerUtil.java`
 
@@ -1030,6 +1044,16 @@ deletes every cached `DomainParticipant`.
 
 ## Inbound (subscribe) pipeline — SensorReport, confirmed working end-to-end
 
+**Port name note:** everything below was investigated and written while the
+model had a single shared `"dds-bus"` port on `DDS_Simulation_Environment`.
+That port has since been split into two (`dds-bus-listener` for inbound,
+`dds-bus-sender` for outbound) — see the "Hardcoded names" section further
+down for the full story and the current, real port name used at runtime.
+Every `"dds-bus"` reference in this section should be read as
+`"dds-bus-listener"` today; left as originally written rather than
+retroactively edited, since the mechanics/findings described are otherwise
+unchanged.
+
 The mirror image of the outbound pipeline above: external DDS data →
 running simulation, instead of running simulation → DDS. The real target
 topic is `SensorReport` → SAGE, injected via the `dds-bus` port on
@@ -1324,46 +1348,102 @@ Contains`/`Gate Sensor Report` logic identically to a signal from a real
 internal source. The `callOperation`/`ReceiveHealth` design has been fully
 removed.
 
-### Hardcoded names
+### Hardcoded names — four of five eliminated; the port name is back to hardcoded (`DdsInboundInjector.java`)
 
-`PollDdsSubscriptionAndInject.groovy` hardcodes five names: `TOPIC_NAME`,
-`PARTICIPANT_CONFIG_NAME`, `DATA_READER_NAME`, `PAYLOAD_BLOCK_NAME`, and
-`PORT_NAME`. No SAGE role-name or Operation-name lookup is needed with the
-explicit-target `sendSignal` design (`target = ALH.getContext()` directly),
-which is fewer hardcoded names than the earlier `callOperation` design
-required.
+The five names once hardcoded in `PollDdsSubscriptionAndInject.groovy`
+(`TOPIC_NAME`, `PARTICIPANT_CONFIG_NAME`, `DATA_READER_NAME`,
+`PAYLOAD_BLOCK_NAME`, `PORT_NAME`) were all eliminated by
+`DdsInboundInjector.java` (new class), which drives everything from
+`ModelTopicScanner.scan()` instead: any Signal with the «DDS_Topic»
+stereotype, wired inbound (Port → «InterfaceBlock» → «FlowProperty»
+direction=in) on any Block, is discovered, subscribed to, and injected
+automatically — no per-topic configuration anywhere in either Groovy
+script.
 
-`PARTICIPANT_CONFIG_NAME`/`DATA_READER_NAME`/`PAYLOAD_BLOCK_NAME` have a
-clear, mechanical elimination path via `ModelTopicScanner`, not yet
-implemented: `findPublishingBlockNameFromScan()` already does the
-equivalent lookup for the outbound side using
-`TopicModel.Topic.publisherBlockNames`; the same scan already populates
-`subscriberBlockNames` for the inbound side, so a mirror
-`findSubscribingBlockNameFromScan()` plus the `"Subscriber::<Topic>Reader"`
-convention `DdsXmlGenerator` already uses would eliminate both, and
-`typeName` off the scanned `Topic` would eliminate `PAYLOAD_BLOCK_NAME`.
-`PORT_NAME` and `TOPIC_NAME` remain genuinely per-deployment choices (which
-port this script sends through, which topic it's responsible for) with no
-scanner-derivable answer.
+`participantConfigName`/`dataReaderName`/`payloadBlockName` are still fully
+eliminated this way (same convention `DdsEngineListener` uses outbound:
+`"DomainParticipantLibrary::" + blockName`, `"Subscriber::" + topicName +
+"Reader"`, `topic.typeName`) — no new scanning needed, just wiring it up.
+
+**`PORT_NAME` is a different story — TODO, revisit.** It briefly *was*
+eliminated the same way: `ModelTopicScanner.handleBlockPorts()` already
+walks every Block's real `Port` objects to decide in/out direction, so it
+was extended to keep the Port's own name too
+(`TopicModel.Topic.subscriberPorts`, a `Map<BlockName, PortName>`), and
+`pollAndInjectAll()` tried every recorded candidate Port against the
+current target, letting `ALH.sendSignal()`'s own "not found on this
+object" exception silently rule out the wrong ones.
+
+**Live testing showed this picked a real but non-functional port** — the
+structural scan surfaces `port_in` (a name that lives on SAGE's own Block,
+not on `DDS_Simulation_Environment`, but *did* exist somewhere reachable
+from the target and so passed the "does sendSignal throw" test) instead of
+`dds-bus`, the one port on `DDS_Simulation_Environment` that's actually
+wired through a Connector into SAGE. Delivery "succeeded" (no exception)
+but produced no downstream effect — the signal landed on a port with
+nothing connected to it. Reverted to a single hardcoded, known-convention
+name at the model owner's explicit direction, now `"dds-bus-listener"`
+after `DDS_Simulation_Environment` was further split into separate
+listener/sender ports (`dds-bus-listener` for inbound, matching a
+service's own `port_in`; `dds-bus-sender` for outbound, matching
+`port_out`).
+
+**Not yet fixed — this port name should not be hardcoded.** The structural
+scan's candidate-list approach was the right idea but the wrong selection
+criterion ("does the target merely have a port by this name" isn't the
+same as "is this port actually wired to something"). A real fix would need
+the scan (or a live check) to also confirm Connector-level connectivity
+from the candidate port through to wherever the topic's true subscribing
+Block/Port lives, not just port-name existence on the immediate target —
+unstarted design work, not a mechanical extension of the existing scan.
+
+**What genuinely can't be eliminated, confirmed via a full `javap -p` dump
+of `ALH`'s public API:** there is no sanctioned way to look up "the live
+running instance of Block X" from outside that instance's own execution —
+`ALH.getContext()` only ever resolves to "whichever object is currently
+running this code." So a poll script still has to be physically pasted
+somewhere with a repeating trigger (today: `DDS_Simulation_Environment`'s
+`CONFIGURE DDS INCOMING` state) — that placement fact is inherent, not a
+hardcoded string in the code. `ALH` itself is passed as a parameter into
+`DdsInboundInjector`'s methods (the caller's own CST-auto-injected
+instance) rather than constructed internally, for the same reason —an
+externally-constructed `ALH`'s `getContext()` returns null (same finding
+as `FumlValueBridge.java`).
+
+One known, accepted limitation: `DDSTopicSubscriber`'s reader cache is
+keyed by bare `dataReaderName` (`"Subscriber::<Topic>Reader"`), not
+qualified by participant — if two *different* Blocks ever both subscribed
+to the same topic, their reader names would collide in that cache. Not
+fixed, since the current model has exactly one subscriber per topic and
+this pre-dates the generalization work.
 
 ### Status — confirmed working end-to-end
 
-**Confirmed live, full pipeline:** an external standalone publisher
-(`test_tools/sensor_report_publisher/`) publishes real `SensorReport`
-samples over DDS → `DDSTopicSubscriber` receives and queues them
-(`[RTI Connext] Received sample for topic 'SensorReport' -> queued: ...`)
-→ `PollDdsSubscriptionAndInject.groovy` drains the queue, builds a
-`SensorReport_data` object and a `SensorReport` signal via `ALH.
-createObject`/`setValue`/`createSignal`, and delivers it via
-`ALH.sendSignal(signalInstance, ALH.getContext(), "dds-bus")`
+**Confirmed live, full pipeline (hardcoded-names version):** an external
+standalone publisher (`test_tools/sensor_report_publisher/`) publishes
+real `SensorReport` samples over DDS → `DDSTopicSubscriber` receives and
+queues them (`[RTI Connext] Received sample for topic 'SensorReport' ->
+queued: ...`) → the poll script (at the time, still hardcoded per-topic)
+drains the queue, builds a `SensorReport_data` object and a `SensorReport`
+signal via `ALH.createObject`/`setValue`/`createSignal`, and delivers it
+via `ALH.sendSignal(signalInstance, ALH.getContext(), "dds-bus")`
 (`[DDS Inject] SUCCESS: sent 'SensorReport' via port 'dds-bus'`) → the
 signal reaches SAGE and triggers its own real internal validation logic
 (`ValidateSensorReport` → `Object_Contains` → `Gate Sensor Report`),
 observable in the GUI log exactly as it would be for a signal from a real
-internal source. This also confirms the enum fields (`measurement_frame`,
+internal source. This also confirmed the enum fields (`measurement_frame`,
 `sensor_modality`) round-trip correctly through `ALH.setValue()` given a
-bare String off the JSON queue — previously unverified, now confirmed by
-this same run.
+bare String off the JSON queue.
+
+**Since generalized, not yet independently live-tested:** the mechanism
+above was refactored into the fully generic, scanner-driven
+`DdsInboundInjector` described above (same `createObject`/`setValue`/
+`createSignal`/`sendSignal` calls, same target resolution — just no
+hardcoded topic/participant/reader/payload/port names anymore). The
+underlying mechanism is the same one already confirmed live; the
+generalization itself (multi-candidate-Port try loop, `subscribeAll()`
+called from a driven scan instead of one hardcoded call) has not yet been
+exercised against a real run.
 
 **Data-content note, not a pipeline defect:** `Object_Contains` correctly
 rejects any `sensor_id` not present in the model's own Registration Map
@@ -1452,14 +1532,27 @@ full type-system coverage:**
   not a real UML concept (an `Enumeration`'s literals are always flat), so
   not applicable; noted here only because it was explicitly asked about as
   a boundary to document.
-- **Runtime (outbound publish) serialization** — this round of work only
-  touched design-time XML generation (`ModelTopicScanner`/`DdsXmlGenerator`).
-  `DdsEngineListener`'s live-simulation field extraction/JSON-building
-  (`appendField()`) was NOT updated to handle array- or enum-valued fields —
-  publishing a real `GatedReport` sample (as opposed to generating its XML
-  schema) would still need that separate work, and would likely hit the
-  same "unexpected value type" `toString()` fallback the pre-existing
-  `anomalous_sensors` gap already documents.
+- **Runtime (outbound publish) serialization — fixed, 2026-09-10.**
+  `DdsEngineListener.appendField()` originally had no case for an
+  array-valued field (`java.util.ArrayList`, e.g. `GatedReport.Position`)
+  and picked JSON serialization off the extracted value's raw Java runtime
+  type rather than the field's DDS-declared type — both confirmed live to
+  independently break a real `GatedReport` publish:
+  `RETCODE_BAD_PARAMETER` from `DDS_DynamicDataParser_parse_json_node`,
+  once for `Position` (an `ArrayList` fell into the "unexpected value type"
+  branch and got sent as a single JSON *string* holding its `toString()`,
+  e.g. `"Position":"[7.07, 7.07]"` instead of a real array), and once for
+  `system_time` (declared `type="string"` but extracted as a
+  `java.lang.Double`, serialized as a bare JSON number instead of a quoted
+  string). `appendField()` now checks `field.isArray()` first (builds a
+  real JSON array via a new `arrayToJson()`/`arrayElementToJson()` pair),
+  and checks `field.primitiveType` before the runtime type for scalars (so
+  a schema-declared `string` field is always quoted, regardless of what
+  Java class the value came back as). Confirmed live: `GatedReport`
+  (`Position`/`Velocity` arrays, `system_time` string) now publishes
+  successfully end-to-end, feeding a real, working multi-service demo
+  pipeline (sensor emulator → SAGE → Association → Display) — see this
+  file's "Beyond the plugin" section near the end.
 
 ---
 
@@ -1519,6 +1612,77 @@ class.
 
 ---
 
+## Beyond the plugin — the full demo pipeline (as of 2026-09-14)
+
+This document is scoped to `cameo_plugin/src`'s own code — everything above
+is the plugin itself. But the plugin no longer stands alone: it's the first
+stage of a full, confirmed-working, multi-service, multi-language demo
+pipeline. **As of 2026-09-18, everything below lives OUTSIDE this
+repository**, in a separate, untracked sibling folder
+(`sage_demo_pipeline/` under this machine's Documents, alongside — not
+inside — this git repo), specifically so this repo (pushed to RTI's
+`rticommunity` remote) only contains the plugin itself, not this project's
+own demo/test scaffolding. Each piece still has its own README covering its
+own build/run/status detail, just not tracked here. Worth knowing this
+exists before assuming the plugin is the whole story:
+
+- **SAGE** ("Sensor Alignment and Gating Service") — the CAMEO model
+  itself, driven by this plugin. Subscribes to `SensorReport`
+  (`sage_demo_pipeline/test_tools/sensor_report_publisher/`, a standalone
+  Java DDS publisher — two variants: `SensorReportPublisher.java`, one
+  fixed sensor/position; `DualSensorTargetPublisher.java`, both registered
+  sensors, `CAM-01`/`CAM-02`, independently observing one shared
+  predetermined moving target from two different angles each cycle, using
+  the model's real Registration Map values), gates/transforms/validates
+  it, and publishes `GatedReport` back out over real DDS.
+- **Association** (`sage_demo_pipeline/association/`) — a standalone C++ service (RTI Modern
+  C++ API), deliberately **not** modeled in CAMEO — represents an
+  already-implemented, already-deployed production system SAGE has to
+  interoperate with on the real bus, not something this project owns the
+  design of. Subscribes to `GatedReport`, does real nearest-neighbor track
+  association (2.0m threshold, reusing SAGE's own spatial-gate bound), and
+  publishes a new `Track` topic it defines and owns.
+- **Display** (`sage_demo_pipeline/display/`) — a standalone Python tool (`rti.connextdds`,
+  matplotlib), one live 4-panel figure: two independent naive per-sensor
+  world-frame views (raw `SensorReport`, geometry-only transform, no
+  gating — "what each sensor thinks"), SAGE's gated output
+  (`GatedReport`, colored by source sensor), and Association's tracks
+  (`Track`, colored by `track_id`). Each subscriber runs in its own
+  thread pushing into a thread-safe queue the animation loop drains per
+  frame. Confirmed working end-to-end, including seeing Association
+  actually associate both sensors' reports of the shared target.
+- **`sage_demo_pipeline/track_visualizer/`** — an earlier, simpler
+  single-panel `Track`-only predecessor to `display/`'s Tracks panel; kept
+  as-is, superseded in practice but not removed.
+- **`sage_demo_pipeline/sage_tester/`** (added 2026-09-15) — a standalone
+  Python tool that publishes known `SensorReport` inputs and asserts
+  SAGE's (and, for one scenario, Association's) real output against
+  expected results — automated requirements verification, since the
+  model's own behavior was never written down as formal requirements
+  before this. Running it regenerates `sage_tester/REQUIREMENTS.md`, a live traceability matrix
+  derived directly from the scenarios actually being verified. Also the
+  first place in this project either the write-side `rti.connextdds`
+  Python API (`writer.create_data()`, dict-style field assignment) or its
+  enum-setting convention (integer ordinal only, string names raise
+  `ValueError` — confirmed live) got exercised; every other Python tool
+  here was read-only.
+
+**Two real, non-plugin-specific findings surfaced building this pipeline,
+both relevant if this plugin's own generated DDS config is ever debugged
+again:**
+1. The QoS profile default/`base_name` fix documented in the Known Gaps
+   table below (`DdsXmlGenerator.java`) was actually **found** via this
+   pipeline (a hand-authored config exhibiting the identical bug), then
+   traced back to and fixed in the plugin's own generator.
+2. `GatedReport`'s `source_sensor_id` field (not `sensor_id`) and its lack
+   of any `x_world`/`y_world` members (position is a `Position` float64[2]
+   array, `Position[0]`/`Position[1]`) tripped up more than one downstream
+   consumer expecting field names to match `SensorReport_data`'s or to be
+   named like `Track`'s — worth remembering if another consumer of
+   `GatedReport` gets built.
+
+---
+
 ## Known gaps and TODOs
 
 Collected from comments across the codebase and from live debugging in this
@@ -1534,15 +1698,17 @@ just undocumented:
 | **`DdsEngineListener` — Block resolution for participant naming** | **Fixed, live-confirmed.** Two distinct bugs found via comparing owner-chain traces side by side. (1) `findOwningBlock()`'s ownership-chain walk returned null for `Health` (its `SendSignalAction` sits in a reusable/library Activity invoked via `CallBehaviorAction`, owned by a `Package` chain, not a Block — no ownership relationship to walk at all) — fixed by adding `findPublishingBlockNameFromScan()`, the already-scanned structural publisher Block(s) from `ModelTopicScanner` (Port → InterfaceBlock → FlowProperty), now the **primary** source. (2) For `SensorReport`, the ownership walk found a *real but wrong* Block (`DDS_Simulation_Environment`, the enclosing StateMachine's owning Class) that doesn't exist as a `<domain_participant>` in the generated XML at all — `DdsXmlGenerator` only ever builds participants from the structural scan, so that scan had to become primary, with the ownership walk demoted to a secondary heuristic tried only when the scan is empty/ambiguous. Live-confirmed: `Health`'s participant resolves correctly via the scan and publishes successfully. (`SensorReport` still fails, but only because of the separate modeling gap above — the resolution logic itself is now correct.) |
 | **`RETCODE_ERROR` on publish** | **Root-caused and fixed, live-confirmed.** Was not a symptom of null/malformed payload content as first suspected (a fully-populated synthetic payload failed identically) — the real cause was invisible until NDDS's own internal logging was routed into the GUI log (see `DDSTopicPublisher.java` below): the generated XML itself failed to parse (`RTIXMLObject_addChild: XML object with name '::DomainLibrary::Domain::SensorReport' already exists`), because `DdsXmlGenerator` gave `<register_type>` and `<topic>` the same `name` whenever a model's payload Block is named identically to its Signal — see the `DdsXmlGenerator.java` section above for the fix (`register_type` now gets a `"_Type"`-suffixed name, guaranteed distinct from any topic name). Confirmed fixed live: after regenerating the XML, `Health` published successfully with **zero** parse errors. |
 | **Cached `DomainParticipant`s outliving the simulation** | **Fixed.** The original design deliberately let participants outlive a single simulation run (only ever torn down in `RTIConnextPlugin.close()`), to avoid re-paying expensive participant creation on every re-run. Live testing showed the real cost: a lingering participant keeps doing normal DDS background activity (discovery, liveliness) for as long as CAMEO stays open, which — once NDDS logging started getting routed into the GUI log to chase `RETCODE_ERROR` above — surfaced as a message (a standard RTI discovery-layer "remote reader/writer has no addressable locators" warning, not a bug) repeating every few seconds, including after the user had stopped the simulation. `DdsEngineListener.executionTerminated()` (both the `EngineListener` and `SimulationExecutionListener` overloads) now calls `DDSTopicPublisher.shutdown()`, trading the reuse-across-runs optimization for stopping DDS activity when the simulation does. Note: this only affects participants created *after* the fix was deployed — a participant already alive in a running CAMEO process from an earlier test needs a full CAMEO restart to clear. |
-| **`anomalous_sensors` (list-valued field) serialized incorrectly** | `appendField()` has no case for a `java.util.List`-shaped extracted value (seen for `Health`'s `anomalous_sensors`, which came back as an empty `ArrayList`) — it falls into the "unexpected value type" branch and gets sent as the JSON *string* `"[]"` rather than an actual JSON array. Untested against a real, non-empty list — if the DDS type for a field like this is a sequence, a populated list would very likely fail type validation in `sample.from_string()`. Not yet fixed. |
+| **List/array-valued outbound field serialization** | **Fixed, 2026-09-10, live-confirmed.** `appendField()` now handles `java.util.List`-shaped extracted values (a fixed-size array field, e.g. `GatedReport.Position`) via a proper JSON array, and checks `field.primitiveType` before the extracted value's raw Java runtime type for scalars (fixes a `string`-declared field like `system_time` coming back as a `java.lang.Double` and being serialized as a bare number). Confirmed live: `GatedReport` now publishes successfully with real `Position`/`Velocity` arrays and a real `system_time` string — see the "Runtime (outbound publish) serialization" note above for the full story. |
 | **XML config resolution is fragile** | `DDSTopicPublisher.resolveXmlUrl()` picks whichever `.xml` file sorts alphabetically first in `<plugin-dir>/resources/`. Reinstalling the plugin re-copies the sample `resources/ShapeType.xml`, which can silently outrank a real generated config depending on filename (`"S"` sorts before lowercase names in plain ASCII order) — this has caused live `DomainParticipant` creation to fail mid-session. The `-Dcom.rti.connext.cameo.xmlConfig=<path>` system-property override bypasses this ambiguity entirely and is the more robust option once a config is finalized. |
 | **Generated XML ↔ runtime config hand-off** | `GenerateDdsXmlAction` writes wherever the user picks via `JFileChooser`; `DDSTopicPublisher.resolveXmlUrl()` looks in `<plugin-dir>/resources/` (or the system property above). Nothing connects these automatically — the user must manually place the generated file (or set the property). `resources/ShapeType.xml` is an unrelated, hand-written demo config (Square/Circle/Triangle shapes), not something `Generate DDS XML` ever produces. |
 | **Nested composite states** | `scanRegionForSubscriptions()` only scans one Region level; a `SignalEvent` trigger inside a nested composite state's sub-region isn't found by the behavioral trace. (Doesn't affect topic discovery/pub-sub anymore, since those are now structural — only affects the future behavioral-vs-structural validation feature.) |
 | **Primitive type mapping** | `mapPrimitive()` is a small hardcoded stub (`Integer`/`Real`/`Boolean`/`String` → DDS primitives, everything else falls back to `"string"`). No real convention has been decided for a broader set of value types. |
 | **Fixed-size arrays and UML Enumerations — added for `GatedReport`** | `ModelTopicScanner`/`TopicModel`/`DdsXmlGenerator` now detect a Property's fixed multiplicity (`upper==lower>1`, e.g. `Real[2]`) as `arrayDimensions="N"`, and a Property typed by a UML `Enumeration` as a new `<enum>` block + `type="nonBasic" nonBasicTypeName="..."` member — both verified against real APIs/XML (local CAMEO 2024.3 javadoc for `MultiplicityElement`/`Enumeration`; real RTI-shipped example XML for the `nonBasic` enum-reference syntax, which differs from the naive bare-`type=` guess) rather than assumed, and confirmed via a hand-built `TopicModel` exercising `DdsXmlGenerator` directly (no MagicDraw dependency needed for that half). **Not** covered: variable-length sequences (`0..*`/`1..*`), multi-dimensional arrays (`TopicModel.Field.arrayDimension` only carries one `Integer`), and — most notably — the *outbound runtime* publish pipeline (`DdsEngineListener.appendField()`), which was not touched by this change and would still hit the same "unexpected value type" fallback the pre-existing `anomalous_sensors` gap already documents if asked to actually publish an array/enum field live. |
 | **QoS** | No longer entirely out of scope (see `ImportQosProfileAction`/QoS picker), but still very narrow — only `participant_name`, `history_depth`, and `is_default_qos` are read/written anywhere. No other Connext QoS policy (durability, reliability, deadline, partition, …) is modeled or emitted. |
+| **QoS profile default doesn't apply to XML-declared entities — fixed, 2026-09-14** | `is_default_qos="true"` on the generated `<qos_profile>` has **no effect** on `<data_writer>`/`<data_reader>` elements statically declared in a `domain_participant_library` — confirmed via direct live testing (not assumed), after a real symptom traced back to it: none of `SensorReport_data.sensor_id`/`GatedReport.source_sensor_id`/`Track.track_id` is a DDS key, so each topic has one shared anonymous instance; combined with RTI's factory-default `HISTORY = KEEP_LAST depth=1` (silently in effect despite the model's own `«DDS_QosProfile»` specifying `history_depth=6`), a second sensor's sample written immediately after a first deterministically overwrote it before any reader read it. `DdsXmlGenerator.appendDomainParticipantLibrary()` now emits an explicit `<datawriter_qos base_name="QosLibrary::<profileName>"/>` / `<datareader_qos base_name="...">` on every generated reader/writer when a QoS profile is selected — this is what actually applies it. The four hand-authored DDS configs outside the plugin (`test_tools/sensor_report_publisher/SensorReport.xml`, `association/association_config.xml`, `display/display_config.xml`, `track_visualizer/track_visualizer_config.xml`) needed the identical fix, since none of them had ever referenced a profile explicitly either. The underlying "no DDS key on these structs" design choice itself is unchanged — a real key would be the more correct long-term fix but needs a CAMEO model change; the QoS fix sidesteps it without one. |
 | **QoS profile import** | Only ever imports **one** `<qos_profile>` per XML file (the first one found), even if the file defines several. No update/re-import path either — running `Import QoS Profile` again against the same file creates a second `«DDS_QosProfile»` element rather than updating the first. |
-| **`old_files/`** | Not part of the build (not in `build.bat`'s source list); appears to be a pre-refactor snapshot kept for reference. Worth confirming with whoever kept it whether it can be deleted. |
+| **`DdsInboundInjector` inbound delivery port is hardcoded** | `injectOne()` sends via a literal `"dds-bus-listener"` — reverted from a scan-derived candidate-list approach after live testing showed the scan picks a real-but-unconnected port (see the "Hardcoded names" section above for the full story). Fixing this for real needs the scan to confirm actual Connector-level wiring to the topic's subscribing Block, not just port-name existence on the target — unstarted design work. |
+| **`old_files/`** | **Resolved, 2026-09-18** — moved out of this repository to `sage_demo_pipeline/cameo_plugin_old_files/` (never was part of the build; a pre-refactor snapshot kept only as a historical reference, not deleted outright). |
 | **`cameo_plugin/README.md`** | Describes the old `ShapeTypePublisherAction`/`ShapeTypeSubscriberAction`/`DDSRunner` design, which no longer exists in `src/`. Stale — this `architecture.md` is the current source of truth; the README should eventually be rewritten or removed. |
 
 ---
@@ -1590,13 +1756,16 @@ open before this change; the QoS work didn't create it, just added to it.
 
 ## Relationship to the README and `old_files/`
 
-`cameo_plugin/README.md` and `old_files/` both describe/contain an earlier
-version of this plugin built around `ShapeTypePublisherAction`,
-`ShapeTypeSubscriberAction`, and a `DDSRunner` class running background
-publisher/subscriber threads for a demo `ShapeType`. That design has been
-fully replaced by the model-scanning + XML-generation + (partial)
-simulation-listener architecture described above; none of those three
-classes exist in `src/` anymore (confirmed removed — see `git status` at
-the repo root, which shows them as deleted). This document describes the
-**current** architecture; the README does not and should be treated as
-stale until it's rewritten.
+**Updated 2026-09-18: `cameo_plugin/README.md` has been rewritten and is
+current** — it now describes the actual Tools-menu actions and build/
+install/troubleshooting steps for both CST versions, and points here for
+everything else. It previously described an earlier version of this plugin
+built around `ShapeTypePublisherAction`, `ShapeTypeSubscriberAction`, and a
+`DDSRunner` class running background publisher/subscriber threads for a demo
+`ShapeType` — none of those three classes exist in `src/` anymore. That
+old README content, plus `old_files/` (a pre-refactor snapshot of the same
+era, never part of the build), have been moved out of this repository
+entirely to `sage_demo_pipeline/cameo_plugin_old_files/` (a sibling folder
+outside git's view — see "Beyond the plugin" above for why that split
+exists) rather than deleted outright, kept only as a historical reference,
+not as anything this plugin depends on.

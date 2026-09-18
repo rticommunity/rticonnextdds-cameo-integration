@@ -97,7 +97,7 @@ public final class DdsXmlGenerator {
             appendQosLibrary(xml, qosProfile);
         }
         appendDomainLibrary(xml, orderedStructs, model.topics, domainId);
-        appendDomainParticipantLibrary(xml, model.topics);
+        appendDomainParticipantLibrary(xml, model.topics, qosProfile);
 
         xml.append("</dds>\n");
         return xml.toString();
@@ -247,9 +247,31 @@ public final class DdsXmlGenerator {
     // -------------------------------------------------------------------------
 
     private static void appendDomainParticipantLibrary(StringBuilder xml,
-                                                         Map<String, TopicModel.Topic> topics) {
+                                                         Map<String, TopicModel.Topic> topics,
+                                                         ModelTopicScanner.QosProfileInfo qosProfile) {
         xml.append("    <domain_participant_library name=\"")
            .append(DOMAIN_PARTICIPANT_LIBRARY_NAME).append("\">\n");
+
+        // CONFIRMED LIVE BUG, fixed here: is_default_qos="true" on the
+        // <qos_profile> emitted by appendQosLibrary() has NO effect on
+        // entities statically declared in a domain_participant_library --
+        // each data_writer/data_reader below must explicitly reference the
+        // profile via a nested <datawriter_qos base_name="..."/> /
+        // <datareader_qos base_name="..."/>, or it silently falls back to
+        // RTI's factory default QoS (HISTORY = KEEP_LAST depth=1)
+        // regardless of what the model's own «DDS_QosProfile» element
+        // specifies. Without this, none of the "Sensor Alignment and Gating
+        // Service"'s own historyDepth setting was ever actually applied to
+        // HealthWriter/GatedReportWriter/SensorReportReader -- confirmed by
+        // reproducing the exact same bug in this project's hand-authored
+        // test configs (see cameo_plugin/test_tools/sensor_report_publisher/
+        // SensorReport.xml's own comment on this): with only
+        // is_default_qos="true" and no explicit reference, a keyless
+        // topic's second same-instance sample deterministically overwrote
+        // the first before any reader read it, every single time.
+        String qosProfileRef = qosProfile != null
+                ? QOS_LIBRARY_NAME + "::" + qosProfile.profileName
+                : null;
 
         for (String blockName : collectParticipantBlockNames(topics)) {
             xml.append("      <domain_participant name=\"").append(escapeAttr(blockName))
@@ -261,7 +283,15 @@ public final class DdsXmlGenerator {
                 xml.append("        <publisher name=\"Publisher\">\n");
                 for (TopicModel.Topic topic : published) {
                     xml.append("          <data_writer name=\"").append(escapeAttr(topic.topicName))
-                       .append("Writer\" topic_ref=\"").append(escapeAttr(topic.topicName)).append("\"/>\n");
+                       .append("Writer\" topic_ref=\"").append(escapeAttr(topic.topicName)).append("\"");
+                    if (qosProfileRef != null) {
+                        xml.append(">\n");
+                        xml.append("            <datawriter_qos base_name=\"")
+                           .append(escapeAttr(qosProfileRef)).append("\"/>\n");
+                        xml.append("          </data_writer>\n");
+                    } else {
+                        xml.append("/>\n");
+                    }
                 }
                 xml.append("        </publisher>\n");
             }
@@ -271,7 +301,15 @@ public final class DdsXmlGenerator {
                 xml.append("        <subscriber name=\"Subscriber\">\n");
                 for (TopicModel.Topic topic : subscribed) {
                     xml.append("          <data_reader name=\"").append(escapeAttr(topic.topicName))
-                       .append("Reader\" topic_ref=\"").append(escapeAttr(topic.topicName)).append("\"/>\n");
+                       .append("Reader\" topic_ref=\"").append(escapeAttr(topic.topicName)).append("\"");
+                    if (qosProfileRef != null) {
+                        xml.append(">\n");
+                        xml.append("            <datareader_qos base_name=\"")
+                           .append(escapeAttr(qosProfileRef)).append("\"/>\n");
+                        xml.append("          </data_reader>\n");
+                    } else {
+                        xml.append("/>\n");
+                    }
                 }
                 xml.append("        </subscriber>\n");
             }

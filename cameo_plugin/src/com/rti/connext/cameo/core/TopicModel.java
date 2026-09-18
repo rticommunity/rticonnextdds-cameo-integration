@@ -83,6 +83,14 @@ public final class TopicModel {
         public final List<String> publisherBlockNames = new ArrayList<>();
         public final List<String> subscriberBlockNames = new ArrayList<>();
 
+        // Block name -> the actual inbound Port's own name on that Block.
+        // Same discovery pass as subscriberBlockNames (handleBlockPorts()),
+        // just also keeping what that method used to discard. Lets a fully
+        // generic inbound injector (DdsInboundInjector) resolve which Port
+        // to ALH.sendSignal() through for a given (Block, Topic) pairing
+        // without any per-topic hardcoding.
+        public final Map<String, String> subscriberPorts = new LinkedHashMap<>();
+
         public Topic(String topicName, String typeName) {
             this.topicName = topicName;
             this.typeName = typeName;

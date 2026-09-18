@@ -1,23 +1,49 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <dds xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://community.rti.com/schema/7.5.0/rti_routing_service.xsd" version="7.5.0">
     <types>
-      <struct name="SensorReport" extensibility="appendable">
+      <enum name="MeasurementFrameEnum">
+        <enumerator name="POLAR_SENSOR_LOCAL" value="0"/>
+        <enumerator name="CARTESIAN_SENSOR_LOCAL" value="1"/>
+        <enumerator name="WGS84_GEODETIC" value="2"/>
+        <enumerator name="BEARING_ONLY" value="3"/>
+        <enumerator name="BEARING_RANGE_ESTIMATE" value="4"/>
+      </enum>
+      <enum name="SensorModalityEnum">
+        <enumerator name="RADAR" value="0"/>
+        <enumerator name="EO_IR" value="1"/>
+        <enumerator name="ACOUSTIC" value="2"/>
+      </enum>
+      <enum name="ServiceStateEnum">
+        <enumerator name="UNINITIALIZED" value="0"/>
+        <enumerator name="READY" value="1"/>
+        <enumerator name="ALIGNING" value="2"/>
+        <enumerator name="GATING" value="3"/>
+        <enumerator name="DEGRADED" value="4"/>
+        <enumerator name="FAILED" value="5"/>
+      </enum>
+      <enum name="RejectionCauseEnum">
+        <enumerator name="QUALITY_BELOW_THRESHOLD" value="0"/>
+        <enumerator name="OUTSIDE_SURVEILLANCE_VOLUME" value="1"/>
+        <enumerator name="TIME_ALIGNMENT_FAILURE" value="2"/>
+        <enumerator name="REGISTRATION_UNAVAILABLE" value="3"/>
+      </enum>
+      <struct name="SensorReport_data" extensibility="appendable">
         <member name="declared_id" type="string"/>
         <member name="sensor_id" type="string"/>
-        <member name="measurement_time" type="string"/>
-        <member name="measurement_frame" type="string"/>
+        <member name="measurement_time" type="int32"/>
+        <member name="measurement_frame" type="nonBasic" nonBasicTypeName="MeasurementFrameEnum"/>
         <member name="range_m" type="float64"/>
         <member name="bearing_rad" type="float64"/>
         <member name="elevation_rad" type="float64"/>
         <member name="doppler_mps" type="float64"/>
         <member name="snr_db" type="float64"/>
         <member name="quality_flag" type="boolean"/>
-        <member name="sensor_modality" type="string"/>
+        <member name="sensor_modality" type="nonBasic" nonBasicTypeName="SensorModalityEnum"/>
         <member name="object_class_hint" type="string"/>
         <member name="reference_point" type="string"/>
       </struct>
-      <struct name="Health" extensibility="appendable">
-        <member name="service_state" type="string"/>
+      <struct name="Health_data" extensibility="appendable">
+        <member name="service_state" type="nonBasic" nonBasicTypeName="ServiceStateEnum"/>
         <member name="cycle_report_count" type="int32"/>
         <member name="cycle_gated_count" type="int32"/>
         <member name="cycle_rejected_count" type="int32"/>
@@ -25,13 +51,29 @@
         <member name="processing_latency_ms" type="float64"/>
         <member name="registered_sensor_count" type="int32"/>
       </struct>
+      <struct name="GatedReport" extensibility="appendable">
+        <member name="report_id" type="string"/>
+        <member name="system_time" type="string"/>
+        <member name="confidence_weight" type="float64"/>
+        <member name="source_sensor_id" type="string"/>
+        <member name="sensor_modality" type="nonBasic" nonBasicTypeName="SensorModalityEnum"/>
+        <member name="cycle_id" type="int32"/>
+        <member name="Position" type="float64" arrayDimensions="2"/>
+        <member name="Velocity" type="float64" arrayDimensions="2"/>
+      </struct>
+      <struct name="RejectedReport_data" extensibility="appendable">
+        <member name="report_id" type="string"/>
+        <member name="source_sensor_id" type="string"/>
+        <member name="rejection_cause" type="nonBasic" nonBasicTypeName="RejectionCauseEnum"/>
+        <member name="rejection_time" type="string"/>
+      </struct>
     </types>
 
     <qos_library name="QosLibrary">
       <qos_profile name="ShapeQosProfile" is_default_qos="true">
         <domain_participant_qos>
           <participant_name>
-            <name>ShapesDemo</name>
+            <name>SAGE</name>
           </participant_name>
         </domain_participant_qos>
         <datareader_qos>
@@ -44,25 +86,31 @@
 
     <domain_library name="DomainLibrary">
       <domain name="Domain" domain_id="0">
-        <register_type name="SensorReport_Type" type_ref="SensorReport"/>
-        <register_type name="Health_Type" type_ref="Health"/>
-        <topic name="SensorReport" register_type_ref="SensorReport_Type"/>
-        <topic name="Health" register_type_ref="Health_Type"/>
+        <register_type name="SensorReport_data_Type" type_ref="SensorReport_data"/>
+        <register_type name="Health_data_Type" type_ref="Health_data"/>
+        <register_type name="GatedReport_Type" type_ref="GatedReport"/>
+        <register_type name="RejectedReport_data_Type" type_ref="RejectedReport_data"/>
+        <topic name="SensorReport" register_type_ref="SensorReport_data_Type"/>
+        <topic name="Health" register_type_ref="Health_data_Type"/>
+        <topic name="GatedReport" register_type_ref="GatedReport_Type"/>
+        <topic name="RejectedReport" register_type_ref="RejectedReport_data_Type"/>
       </domain>
     </domain_library>
 
     <domain_participant_library name="DomainParticipantLibrary">
-      <domain_participant name="Sensor Alignment and Gating Service_Definition" domain_ref="DomainLibrary::Domain">
+      <domain_participant name="Sensor Alignment and Gating Service_Implementation" domain_ref="DomainLibrary::Domain">
         <publisher name="Publisher">
-          <data_writer name="HealthWriter" topic_ref="Health"/>
+          <data_writer name="HealthWriter" topic_ref="Health">
+            <datawriter_qos base_name="QosLibrary::ShapeQosProfile"/>
+          </data_writer>
+          <data_writer name="GatedReportWriter" topic_ref="GatedReport">
+            <datawriter_qos base_name="QosLibrary::ShapeQosProfile"/>
+          </data_writer>
         </publisher>
         <subscriber name="Subscriber">
-          <data_reader name="SensorReportReader" topic_ref="SensorReport"/>
-        </subscriber>
-      </domain_participant>
-      <domain_participant name="Sensor Alignment and Gating Service_Implementation" domain_ref="DomainLibrary::Domain">
-        <subscriber name="Subscriber">
-          <data_reader name="HealthReader" topic_ref="Health"/>
+          <data_reader name="SensorReportReader" topic_ref="SensorReport">
+            <datareader_qos base_name="QosLibrary::ShapeQosProfile"/>
+          </data_reader>
         </subscriber>
       </domain_participant>
     </domain_participant_library>

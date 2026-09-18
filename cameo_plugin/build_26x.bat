@@ -10,34 +10,46 @@
 :: to use the software.
 ::
 :: =============================================================================
-:: build.bat — Build the RTI Connext DDS CAMEO System Modeler 2024x Plugin
+:: build_26x.bat — Build the RTI Connext DDS CAMEO System Modeler 2026x Plugin
+::
+:: Same shape as build.bat (the 2024x builder) — see that file for the fuller
+:: comment history. This one differs only where 2026x itself differs:
+::   - Compiles src24x/.../{FumlValueBridge,DdsEngineListener,DdsInboundInjector}
+::     .java, which touch fUML.Semantics.Classes.Kernel.* directly and
+::     could never compile against 2026x's own moved-and-renamed
+::     com.nomagic.magicdraw.simulation.fuml.* package. That was confirmed live
+::     against a real 2026x install (Magic Cyber Systems Engineer 2026.1.0) —
+::     not assumed. Every other source file is fully shared with build.bat.
+::   - Outputs to build_26x\, not build\, so both builds can coexist without
+::     clobbering each other.
+::   - RTIJDKHOME MUST point at a real JDK 21+ install — 2026x's own jre\
+::     ships java.exe but no javac.exe (JRE-only runtime), and 2026x's own API
+::     jars are compiled to Java 21 bytecode (class file version 65), which an
+::     older javac can't even read for classpath resolution — confirmed live
+::     against 2024x's bundled JDK 17, error "class file has wrong version
+::     65.0, should be 61.0". This machine already has a working JDK 21 at
+::     C:\Program Files\Semeru\jdk-21.0.7.6-openj9 (matches JAVA_HOME) —
+::     defaulted to below if RTIJDKHOME isn't already set.
 ::
 :: Prerequisites
 ::   NDDSHOME   — RTI Connext DDS installation root
-::                e.g.  set NDDSHOME=C:\RTI\rti_connext_dds-7.7.0
-::   CAMEO_HOME — CAMEO System Modeler 2024x installation root
-::                e.g.  set CAMEO_HOME=C:\Program Files\Cameo Systems Modeler
+::   CAMEO_HOME — CAMEO 2026x installation root
+::                e.g.  set CAMEO_HOME=C:\Program Files\Magic Cyber Systems Engineer
+::   RTIJDKHOME — a JDK 21+ install (see above)
 ::
 :: Output (relative to this script)
-::   build\nddsjava.jar        — copied from %NDDSHOME%\lib\java\nddsjava.jar
-::   build\RTIConnextPlugin.jar — compiled plugin JAR (contains ShapeType.xml)
+::   build_26x\nddsjava.jar        — copied from %NDDSHOME%\lib\java\nddsjava.jar
+::   build_26x\RTIConnextPlugin.jar — compiled plugin JAR
 ::
 :: Usage
-::   build.bat           (release build — uses nddsjava.jar)
-::   build.bat debug     (debug build   — uses nddsjavad.jar)
+::   build_26x.bat           (release build — uses nddsjava.jar)
+::   build_26x.bat debug     (debug build   — uses nddsjavad.jar)
 :: =============================================================================
 setlocal enabledelayedexpansion
 
 :: Strip any surrounding quotes / trailing backslash that users may have
-:: included in the set command. Each variable must be guarded by "if defined"
-:: AND use delayed expansion (!VAR!) for the stripping itself. A variable
-:: that is genuinely undefined does NOT safely expand under %VAR:...%
-:: substitution syntax (find/replace or substring) — it can leave stray
-:: characters (e.g. a bare quote, or literally "~-1") in the command line,
-:: which corrupts the variable's value or breaks parsing outright with
-:: "The syntax of the command is incorrect." Guarding with "if defined" and
-:: using delayed expansion defers evaluation until the block actually runs
-:: (i.e. only when the variable really is set), avoiding this entirely.
+:: included in the set command. See build.bat's own comment for why this
+:: guarding shape (if defined + delayed expansion) is needed.
 if defined NDDSHOME (
     set "NDDSHOME=%NDDSHOME:"=%"
     if "!NDDSHOME:~-1!"=="\" set "NDDSHOME=!NDDSHOME:~0,-1!"
@@ -51,6 +63,11 @@ if defined RTIJDKHOME (
     if "!RTIJDKHOME:~-1!"=="\" set "RTIJDKHOME=!RTIJDKHOME:~0,-1!"
 )
 
+:: Default RTIJDKHOME to the JDK 21 already confirmed present on this
+:: machine, if not already set -- see header comment for why 2026x's own
+:: jre\ can't be used for this.
+if not defined RTIJDKHOME set "RTIJDKHOME=C:\Program Files\Semeru\jdk-21.0.7.6-openj9"
+
 :: ---------------------------------------------------------------------------
 :: 0. Check required environment variables
 :: ---------------------------------------------------------------------------
@@ -62,34 +79,25 @@ if "%NDDSHOME%"=="" (
 )
 if "%CAMEO_HOME%"=="" (
     echo ERROR: CAMEO_HOME is not set.
-    echo        Set it to the CAMEO System Modeler installation root, e.g.:
-    echo          set CAMEO_HOME=C:\Program Files\Cameo Systems Modeler
+    echo        Set it to the CAMEO 2026x installation root, e.g.:
+    echo          set CAMEO_HOME=C:\Program Files\Magic Cyber Systems Engineer
     exit /b 1
 )
 
 :: ---------------------------------------------------------------------------
 :: 1. Locate javac
-::    Use %RTIJDKHOME%\bin\javac if available, otherwise use javac on PATH.
+::    Use %RTIJDKHOME%\bin\javac -- 2026x's own jre\ has none (see header).
 :: ---------------------------------------------------------------------------
-if defined RTIJDKHOME (
-    set "JAVAC=%RTIJDKHOME%\bin\javac"
-    set "JAR_TOOL=%RTIJDKHOME%\bin\jar"
-) else (
-    set "JAVAC=javac"
-    set "JAR_TOOL=jar"
-)
+set "JAVAC=%RTIJDKHOME%\bin\javac"
+set "JAR_TOOL=%RTIJDKHOME%\bin\jar"
 
-where "%JAVAC%" >nul 2>&1
-if errorlevel 1 (
-    if defined RTIJDKHOME (
-        if not exist "%JAVAC%.exe" (
-            echo ERROR: javac not found. Install a JDK or set RTIJDKHOME.
-            exit /b 1
-        )
-    ) else (
-        echo ERROR: javac not found. Install a JDK or set RTIJDKHOME.
-        exit /b 1
-    )
+if not exist "%JAVAC%.exe" (
+    echo ERROR: javac not found at %JAVAC%.exe
+    echo        RTIJDKHOME must point at a real JDK 21+ install -- 2026x's own
+    echo        jre\ is JRE-only, no compiler. Set RTIJDKHOME explicitly if
+    echo        C:\Program Files\Semeru\jdk-21.0.7.6-openj9 isn't right for
+    echo        this machine.
+    exit /b 1
 )
 
 :: ---------------------------------------------------------------------------
@@ -111,7 +119,9 @@ if not exist "%NDDSJAVA_JAR%" (
 
 :: ---------------------------------------------------------------------------
 :: 3. Locate CAMEO's md.jar (plugin compilation API)
-::    Try several known locations for CAMEO 2024x / MagicDraw 2024x.
+::    2026x ships com.nomagic.magicdraw.foundation-<version>.jar directly
+::    under lib\ (confirmed live) -- same fallback pattern build.bat already
+::    used for this, no 2026x-specific path needed.
 :: ---------------------------------------------------------------------------
 set "MD_JAR="
 for %%c in (
@@ -124,7 +134,6 @@ for %%c in (
     )
 )
 
-:: CAMEO 2024x ships com.nomagic.magicdraw.foundation-<version>.jar in lib\
 if "!MD_JAR!"=="" (
     for %%f in ("%CAMEO_HOME%\lib\com.nomagic.magicdraw.foundation-*.jar") do (
         if "!MD_JAR!"=="" set "MD_JAR=%%~f"
@@ -142,22 +151,20 @@ if "!MD_JAR!"=="" (
 )
 
 :: ---------------------------------------------------------------------------
-:: 3b. Locate the Cameo Simulation Toolkit plugin dir (needed for
-::     DdsEngineListener.java, which uses com.nomagic.magicdraw.simulation.*
-::     classes — these live under the CST plugin's own lib\, not CAMEO_HOME\lib\).
+:: 3b. Locate the Cameo Simulation Toolkit plugin dir
 :: ---------------------------------------------------------------------------
 set "CST_PLUGIN_DIR=%CAMEO_HOME%\plugins\com.nomagic.magicdraw.simulation"
 if not exist "%CST_PLUGIN_DIR%\lib" (
     echo ERROR: Cannot locate Cameo Simulation Toolkit plugin under
     echo        %CST_PLUGIN_DIR%
     echo        DdsEngineListener.java requires CST to be installed. If CST lives
-    echo        elsewhere on this machine, update CST_PLUGIN_DIR in build.bat.
+    echo        elsewhere on this machine, update CST_PLUGIN_DIR in build_26x.bat.
     exit /b 1
 )
 
 :: ---------------------------------------------------------------------------
 :: 4. Detect Windows architecture directory for native libraries
-::    (informational — shown in README; not needed for compilation)
+::    (informational only; not needed for compilation)
 :: ---------------------------------------------------------------------------
 set "NDDSHOME_ARCH_DIR="
 for /d %%d in ("%NDDSHOME%\lib\x64Win64*") do (
@@ -165,54 +172,39 @@ for /d %%d in ("%NDDSHOME%\lib\x64Win64*") do (
 )
 
 :: ---------------------------------------------------------------------------
-:: 5. Create output directories
-::    Wipe build\classes first — javac -d never deletes stale .class files
-::    for since-removed .java sources, and the packaging step below jars up
-::    everything under build\classes, so leftover classes from a deleted
-::    source file would silently ride along into RTIConnextPlugin.jar.
+:: 5. Create output directories — build_26x\, kept separate from build.bat's
+::    own build\ so both plugin versions can be built without clobbering
+::    each other
 :: ---------------------------------------------------------------------------
-if exist build\classes rmdir /s /q build\classes
-mkdir build\classes
+if exist build_26x\classes rmdir /s /q build_26x\classes
+mkdir build_26x\classes
 
 :: ---------------------------------------------------------------------------
-:: 6. Copy nddsjava.jar into build\ (plugin runtime dependency)
+:: 6. Copy nddsjava.jar into build_26x\
 :: ---------------------------------------------------------------------------
-echo Copying %NDDSJAVA_JAR% ^-^> build\nddsjava.jar
-copy /Y "%NDDSJAVA_JAR%" build\nddsjava.jar >nul
+echo Copying %NDDSJAVA_JAR% ^-^> build_26x\nddsjava.jar
+copy /Y "%NDDSJAVA_JAR%" build_26x\nddsjava.jar >nul
 
 :: ---------------------------------------------------------------------------
 :: 7. Compile plugin Java sources
-::    CAMEO 2024x splits its API across many JARs in lib\; use wildcard entry.
-::
-::    NOTE: this list is intentionally explicit (not a wildcard) —
-::    com\rti\connext\cameo\core\*.java (TopicModel, ModelTopicScanner,
-::    ScanModelForTopicsAction, JsonPayloadBuilder — backend-agnostic SysML
-::    model scanning, kept separate from any specific pub/sub backend) and
-::    com\rti\connext\cameo\dds\*.java (DDSTopicPublisher, DDSTopicSubscriber,
-::    DdsSubscriptionQueue, DdsXmlGenerator, GenerateDdsXmlAction,
-::    ImportQosProfileAction, DdsEngineListener — the RTI Connext DDS
-::    backend: generates DDS XML config, imports QoS profile XML into the
-::    model (this plugin's only WRITE path), publishes samples, listens for
-::    SendSignalAction activations during simulation, and (DDSTopicSubscriber/
-::    DdsSubscriptionQueue) receives inbound DDS samples and queues them for
-::    a Groovy polling script to inject back into a running simulation via
-::    ALH.sendSignal() — see scripts/PollDdsSubscriptionAndInject.groovy).
-::    If you add more source files later, they must
-::    be added here too, or switch this to a recursive dir /s /b *.java loop
-::    instead.
+::    Everything except the three fUML-touching files is fully shared with
+::    build.bat's own src\ tree -- only FumlValueBridge/DdsEngineListener/
+::    DdsInboundInjector come from src26x\ instead of src24x\. If you add
+::    more source files later, add them here too (and to build.bat), unless
+::    they also need a version split.
 :: ---------------------------------------------------------------------------
-set "CLASSPATH=build\nddsjava.jar;%CAMEO_HOME%\lib\*;%CST_PLUGIN_DIR%\lib\*;%CST_PLUGIN_DIR%\*"
+set "CLASSPATH=build_26x\nddsjava.jar;%CAMEO_HOME%\lib\*;%CST_PLUGIN_DIR%\lib\*;%CST_PLUGIN_DIR%\*"
 
 echo.
-echo Compiling plugin (%BUILD_MODE%)...
+echo Compiling plugin (%BUILD_MODE%, 2026x)...
 echo   javac          : %JAVAC%
 echo   CAMEO md.jar   : %MD_JAR%
 echo   Connext JAR    : %NDDSJAVA_JAR%
-echo   Sources        : src\com\rti\connext\cameo\*.java (+ core\*.java, dds\*.java)
-echo   Output dir     : build\classes\
+echo   Sources        : src\com\rti\connext\cameo\*.java (+ core\*.java, dds\*.java) + src26x\...\dds\*.java
+echo   Output dir     : build_26x\classes\
 echo.
 
-"%JAVAC%" -d build\classes -classpath "%CLASSPATH%" ^
+"%JAVAC%" -d build_26x\classes -classpath "%CLASSPATH%" ^
     src\com\rti\connext\cameo\RTIConnextPlugin.java ^
     src\com\rti\connext\cameo\RTIConnextActionsConfigurator.java ^
     src\com\rti\connext\cameo\core\TopicModel.java ^
@@ -226,9 +218,9 @@ echo.
     src\com\rti\connext\cameo\dds\ElementPickerUtil.java ^
     src\com\rti\connext\cameo\dds\GenerateDdsXmlAction.java ^
     src\com\rti\connext\cameo\dds\ImportQosProfileAction.java ^
-    src24x\com\rti\connext\cameo\dds\FumlValueBridge.java ^
-    src24x\com\rti\connext\cameo\dds\DdsEngineListener.java ^
-    src24x\com\rti\connext\cameo\dds\DdsInboundInjector.java
+    src26x\com\rti\connext\cameo\dds\FumlValueBridge.java ^
+    src26x\com\rti\connext\cameo\dds\DdsEngineListener.java ^
+    src26x\com\rti\connext\cameo\dds\DdsInboundInjector.java
 
 if errorlevel 1 (
     echo.
@@ -237,11 +229,10 @@ if errorlevel 1 (
 )
 
 :: ---------------------------------------------------------------------------
-:: 8. Package into build\RTIConnextPlugin.jar
-::    Resources are NOT embedded — they are deployed separately by install.bat.
+:: 8. Package into build_26x\RTIConnextPlugin.jar
 :: ---------------------------------------------------------------------------
-echo Packaging ^-^> build\RTIConnextPlugin.jar
-"%JAR_TOOL%" cf build\RTIConnextPlugin.jar -C build\classes .
+echo Packaging ^-^> build_26x\RTIConnextPlugin.jar
+"%JAR_TOOL%" cf build_26x\RTIConnextPlugin.jar -C build_26x\classes .
 
 if errorlevel 1 (
     echo ERROR: JAR creation failed.
@@ -253,12 +244,12 @@ if errorlevel 1 (
 :: ---------------------------------------------------------------------------
 echo.
 echo ============================================================
-echo  Build complete (%BUILD_MODE%)
+echo  Build complete (%BUILD_MODE%, 2026x)
 echo ============================================================
-echo  build\RTIConnextPlugin.jar  - plugin classes
-echo  build\nddsjava.jar          - Connext Java API
+echo  build_26x\RTIConnextPlugin.jar  - plugin classes
+echo  build_26x\nddsjava.jar          - Connext Java API
 echo.
-echo  Next step: run install.bat to deploy to CAMEO.
+echo  Next step: run install_26x.bat to deploy to CAMEO 2026x.
 if not "!NDDSHOME_ARCH_DIR!"=="" (
     echo.
     echo  IMPORTANT: Add the following to the system PATH before starting CAMEO
