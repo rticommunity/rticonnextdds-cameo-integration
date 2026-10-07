@@ -6,3 +6,7 @@ cameo_plugin/build_26x/
 # OS / editor cruft
 Thumbs.db
 .DS_Store
+
+# Personal environment setup (copy from setup_rti_config*.template.bat)
+cameo_plugin/setup_rti_config.bat
+cameo_plugin/setup_rti_config_26x.bat

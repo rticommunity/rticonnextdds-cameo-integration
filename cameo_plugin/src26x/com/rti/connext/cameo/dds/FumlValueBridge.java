@@ -54,16 +54,11 @@
 package com.rti.connext.cameo.dds;
 
 import com.nomagic.magicdraw.simulation.execution.session.SimulationSession;
-import com.nomagic.magicdraw.simulation.fuml.activities.intermediate.Token;
 import com.nomagic.magicdraw.simulation.utils.ALH;
 import com.nomagic.uml2.ext.magicdraw.commonbehaviors.mdcommunications.Signal;
 
 import com.nomagic.magicdraw.simulation.fuml.classes.StructuredValue;
 import com.nomagic.magicdraw.simulation.fuml.behaviors.communications.SignalInstance;
-
-import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.List;
 
 final class FumlValueBridge {
 
@@ -88,9 +83,7 @@ final class FumlValueBridge {
      * Reads one named field off a live simulation struct/signal value (a
      * SignalInstance, or a nested struct value reached from one), via
      * ALH.getValue() — NoMagic's own supported wrapper, not a direct call
-     * onto the internal StructuredValue.get(). {@code fieldName} is passed
-     * through verbatim, so callers can experiment with dotted/compound keys
-     * without this file needing to know what they mean.
+     * onto the internal StructuredValue.get().
      *
      * @throws IllegalArgumentException if {@code structuredValueObj} isn't a
      *                                   StructuredValue
@@ -103,76 +96,5 @@ final class FumlValueBridge {
         }
         ALH alh = new ALH(session);
         return alh.getValue((StructuredValue) structuredValueObj, fieldName);
-    }
-
-    /**
-     * Returns ALH.getContext() — when constructed via the 2-arg
-     * ALH(SimulationSession) constructor (as here), its own explicit
-     * `context` field is unset, so getContext() falls back to
-     * ContextHelper.findNearestObject() internally to dynamically resolve
-     * "the nearest currently-running object" from the session. May return
-     * null (see ALH's own bytecode — falls through to null if session/
-     * context resolution comes up empty).
-     */
-    static Object getContext(SimulationSession session) {
-        return new ALH(session).getContext();
-    }
-
-    /**
-     * Unwraps an elementActivated() Collection<?> entry (an ObjectToken/
-     * ControlToken) to the fUML Value it carries, or null if
-     * {@code tokenObj} isn't a Token or carries no value (e.g. a
-     * ControlToken). This is the argument value as it existed WHEN THE
-     * ACTION ACTIVATED — potentially earlier/different from whatever
-     * eventTriggered(SignalInstance) later delivers, since UML signal-send
-     * semantics typically copy argument values into a fresh SignalInstance,
-     * and that copy may not replicate every internal storage path.
-     */
-    @SuppressWarnings("deprecation")
-    static Object getTokenValue(Object tokenObj) {
-        if (!(tokenObj instanceof Token)) {
-            return null;
-        }
-        return ((Token) tokenObj).getValue();
-    }
-
-    /**
-     * DIAGNOSTIC ONLY (PORT-DIAG experiment — see DdsEngineListener.java's
-     * Port/Connector elementActivated() handling). Reflects over every
-     * declared field on {@code obj}, walking the superclass chain up to
-     * (not including) Object, entirely bypassing ALH.getValue()'s
-     * lookup-by-name. The goal is seeing the object's true raw internal
-     * state — testing whether Set_Object_Value-written data is present
-     * under some other field/key than what ALH.getValue() looks for, versus
-     * genuinely not being there at this vantage point either.
-     *
-     * Returns an empty list if {@code obj} isn't a StructuredValue (or is
-     * null) — callers should treat that as "nothing to dump", not an error.
-     * A single field's reflection failure (e.g. an inaccessible/exotic
-     * field) is captured as its own line rather than aborting the rest of
-     * the dump.
-     */
-    @SuppressWarnings("deprecation")
-    static List<String> dumpFieldsViaReflection(Object obj) {
-        List<String> lines = new ArrayList<>();
-        if (!(obj instanceof StructuredValue)) {
-            return lines;
-        }
-        Class<?> type = obj.getClass();
-        while (type != null && type != Object.class) {
-            for (Field field : type.getDeclaredFields()) {
-                String label = type.getSimpleName() + "." + field.getName()
-                        + " (" + field.getType().getName() + ")";
-                try {
-                    field.setAccessible(true);
-                    Object value = field.get(obj);
-                    lines.add(label + " = " + (value == null ? "null" : value.toString()));
-                } catch (Exception ex) {
-                    lines.add(label + " — " + ex.getClass().getName() + ": " + ex.getMessage());
-                }
-            }
-            type = type.getSuperclass();
-        }
-        return lines;
     }
 }

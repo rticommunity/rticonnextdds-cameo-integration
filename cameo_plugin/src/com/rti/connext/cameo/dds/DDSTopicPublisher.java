@@ -110,8 +110,15 @@ public final class DDSTopicPublisher {
             throw new RuntimeException("Failed to create DynamicData sample for " + dataWriterName + ".");
         }
 
-        sample.from_string(jsonPayload, PrintFormatKind.JSON_PRINT_FORMAT);
-        writer.write(sample, InstanceHandle_t.HANDLE_NIL);
+        try {
+            sample.from_string(jsonPayload, PrintFormatKind.JSON_PRINT_FORMAT);
+            writer.write(sample, InstanceHandle_t.HANDLE_NIL);
+        } finally {
+            // The sample lives in native (C) memory that the Java garbage
+            // collector can't see, so it must be freed explicitly — on every
+            // path, including when from_string() rejects the payload.
+            writer.delete_data(sample);
+        }
     }
 
     /**

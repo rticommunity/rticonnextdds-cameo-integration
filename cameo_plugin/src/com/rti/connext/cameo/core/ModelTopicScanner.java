@@ -59,6 +59,9 @@ import com.nomagic.uml2.ext.magicdraw.classes.mdkernel.Type;
 import com.nomagic.uml2.ext.magicdraw.commonbehaviors.mdcommunications.Signal;
 import com.nomagic.uml2.ext.magicdraw.commonbehaviors.mdcommunications.SignalEvent;
 import com.nomagic.uml2.ext.magicdraw.commonbehaviors.mdcommunications.Trigger;
+import com.nomagic.uml2.ext.magicdraw.compositestructures.mdinternalstructures.ConnectableElement;
+import com.nomagic.uml2.ext.magicdraw.compositestructures.mdinternalstructures.Connector;
+import com.nomagic.uml2.ext.magicdraw.compositestructures.mdinternalstructures.ConnectorEnd;
 import com.nomagic.uml2.ext.magicdraw.compositestructures.mdports.Port;
 import com.nomagic.uml2.ext.magicdraw.mdprofiles.Profile;
 import com.nomagic.uml2.ext.magicdraw.mdprofiles.Stereotype;
@@ -68,6 +71,7 @@ import com.nomagic.uml2.ext.magicdraw.statemachines.mdbehaviorstatemachines.Tran
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -607,6 +611,43 @@ public final class ModelTopicScanner {
         if (isIn && !topic.subscriberBlockNames.contains(block.getName())) {
             topic.subscriberBlockNames.add(block.getName());
             topic.subscriberPorts.put(block.getName(), port.getName());
+        }
+        if (isIn) {
+            collectInjectionPorts(block, port, topic);
+        }
+    }
+
+    /**
+     * Follows every connector wired INTO a subscriber's inbound Port from
+     * outside the subscriber, and records the Port at the far end (e.g. the
+     * DDS bus / test-environment Block's port). DdsInboundInjector sends
+     * through that far-end Port, so an injected signal travels the modeled
+     * connector into the subscriber. The far-end Port may be untyped — only
+     * the subscriber's side is part of the reviewed spec.
+     *
+     * "From outside" = the subscriber's end of the connector has a
+     * partWithPort (the Port is reached through a part typed by the
+     * subscriber Block). A delegation connector INSIDE the subscriber, from
+     * its boundary Port to one of its own internal parts, has no
+     * partWithPort on that end and is skipped.
+     */
+    private void collectInjectionPorts(Class subscriberBlock, Port subscriberPort, TopicModel.Topic topic) {
+        for (ConnectorEnd end : subscriberPort.getEnd()) {
+            if (end.getPartWithPort() == null) {
+                continue;
+            }
+            Connector connector = end.get_connectorOfEnd();
+            if (connector == null) {
+                continue;
+            }
+            for (ConnectorEnd farEnd : connector.getEnd()) {
+                ConnectableElement farRole = farEnd.getRole();
+                if (farEnd != end && farRole instanceof Port) {
+                    topic.injectionPorts
+                            .computeIfAbsent(subscriberBlock.getName(), k -> new LinkedHashSet<>())
+                            .add(farRole.getName());
+                }
+            }
         }
     }
 

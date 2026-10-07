@@ -71,10 +71,13 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public final class DDSTopicSubscriber {
 
-    // Cached DynamicDataReaders, keyed by dataReaderName — created lazily on
-    // first subscribeOnce() call for a given reader, so a repeated call
-    // (e.g. the bootstrap script running again) doesn't register a second
-    // listener on the same reader.
+    // Cached DynamicDataReaders, keyed by participant + reader name (see
+    // readerKey()) — created lazily on first subscribeOnce() call for a
+    // given reader, so a repeated call (e.g. the bootstrap script running
+    // again) doesn't register a second listener on the same reader. The
+    // participant must be part of the key: reader names are only unique
+    // within their participant, and two Blocks subscribing to the same topic
+    // both have a "Subscriber::<Topic>Reader".
     private static final ConcurrentHashMap<String, DynamicDataReader> READERS =
             new ConcurrentHashMap<>();
 
@@ -85,20 +88,23 @@ public final class DDSTopicSubscriber {
      * Looks up the named DataReader under the given participant config
      * (creating/reusing the DomainParticipant via DDSTopicPublisher's shared
      * cache) and registers a listener that converts each arriving sample to
-     * JSON and pushes it onto DdsSubscriptionQueue under {@code topicName}.
-     * Safe to call more than once for the same dataReaderName — subsequent
-     * calls are no-ops.
+     * JSON and pushes it onto DdsSubscriptionQueue under {@code queueKey}.
+     * Safe to call more than once for the same participant + reader —
+     * subsequent calls are no-ops.
      *
      * @param participantConfigName e.g. "DomainParticipantLibrary::SensorAlignmentAndGatingService_Definition"
      * @param dataReaderName        e.g. "Subscriber::HealthReader" — must exist under the given participant in the XML config
-     * @param topicName             e.g. "Health" — the key PollDdsSubscriptionAndInject.groovy polls for
+     * @param topicName             e.g. "Health" — used in log messages
+     * @param queueKey              e.g. "SAGE::Health" — see DdsSubscriptionQueue.key()
      * @throws IOException if the XML config can't be resolved
      * @throws RuntimeException if participant/reader creation fails, or the named DataReader isn't found
      */
     public static void subscribeOnce(String participantConfigName,
                                       String dataReaderName,
-                                      String topicName) throws IOException {
-        if (READERS.containsKey(dataReaderName)) {
+                                      String topicName,
+                                      String queueKey) throws IOException {
+        String readerKey = participantConfigName + "/" + dataReaderName;
+        if (READERS.containsKey(readerKey)) {
             // Silent no-op — this is the expected common case once a caller
             // (e.g. PollDdsSubscriptionAndInject.groovy, which calls this at
             // the top of every poll cycle to self-heal from a premature
@@ -125,16 +131,16 @@ public final class DDSTopicSubscriber {
         // subscribeOnce() calls for the same name; the containsKey() check
         // above is just a cheap early-out for the common (already-subscribed,
         // single-threaded bootstrap) case.
-        DynamicDataReader existing = READERS.putIfAbsent(dataReaderName, dynamicReader);
+        DynamicDataReader existing = READERS.putIfAbsent(readerKey, dynamicReader);
         if (existing != null) {
             log("[RTI Connext] Subscription already active for '" + dataReaderName + "' — skipping re-registration.");
             return;
         }
 
-        dynamicReader.set_listener(new SampleListener(topicName),
+        dynamicReader.set_listener(new SampleListener(topicName, queueKey),
                 StatusKind.DATA_AVAILABLE_STATUS | StatusKind.SUBSCRIPTION_MATCHED_STATUS);
         log("[RTI Connext] Subscribed to '" + dataReaderName + "' under " + participantConfigName
-                + " — inbound samples will be queued under topic '" + topicName + "'.");
+                + " — inbound '" + topicName + "' samples will be queued under '" + queueKey + "'.");
     }
 
     /**
@@ -152,10 +158,12 @@ public final class DDSTopicSubscriber {
 
     private static final class SampleListener extends DataReaderAdapter {
         private final String topicName;
+        private final String queueKey;
         private final PrintFormatProperty jsonFormat = new PrintFormatProperty(PrintFormatKind.JSON_PRINT_FORMAT);
 
-        SampleListener(String topicName) {
+        SampleListener(String topicName, String queueKey) {
             this.topicName = topicName;
+            this.queueKey = queueKey;
         }
 
         // Runs on RTI's own native callback thread, not CAMEO's UI/
@@ -194,8 +202,8 @@ public final class DDSTopicSubscriber {
                     try {
                         DynamicData sample = (DynamicData) dataSeq.get(i);
                         String json = sample.to_string(jsonFormat);
-                        DdsSubscriptionQueue.push(topicName, json);
-                        log("[RTI Connext] Received sample for topic '" + topicName + "' -> queued: " + json);
+                        DdsSubscriptionQueue.push(queueKey, json);
+                        log("[RTI Connext] Received '" + topicName + "' for " + queueKey + ": " + json);
                     } catch (Exception ex) {
                         log("[RTI Connext] Failed to convert/queue a sample for topic '" + topicName + "': " + ex);
                     }

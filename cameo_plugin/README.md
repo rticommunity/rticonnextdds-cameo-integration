@@ -93,7 +93,10 @@ set PATH=%NDDSHOME%\lib\x64Win64VS2017;%PATH%
 
 ...or add `-Djava.library.path=<that path>` to `<CAMEO_HOME>\bin\*.vmoptions`.
 `setup_rti_config.bat`/`setup_rti_config_26x.bat` automate this (and the
-`RTI_LICENSE_FILE` env var) for a given machine — see those scripts.
+`RTI_LICENSE_FILE` env var) for a given machine. They are machine-specific
+and git-ignored: copy `setup_rti_config.template.bat` (or
+`setup_rti_config_26x.template.bat`) to the name without `.template`, then
+edit the paths under "Core environment variables".
 
 ---
 

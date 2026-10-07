@@ -11,8 +11,10 @@ package com.rti.connext.cameo.core;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public final class TopicModel {
 
@@ -90,6 +92,14 @@ public final class TopicModel {
         // to ALH.sendSignal() through for a given (Block, Topic) pairing
         // without any per-topic hardcoding.
         public final Map<String, String> subscriberPorts = new LinkedHashMap<>();
+
+        // Subscriber Block name -> names of the Ports at the far end of the
+        // connectors wired INTO that Block's inbound Port from outside (e.g.
+        // the DDS bus / test environment Block's port, which may be untyped).
+        // DdsInboundInjector sends each Block's samples only through that
+        // Block's own entries, so an injected signal travels the modeled
+        // connector into exactly that subscriber — no port names hardcoded.
+        public final Map<String, Set<String>> injectionPorts = new LinkedHashMap<>();
 
         public Topic(String topicName, String typeName) {
             this.topicName = topicName;

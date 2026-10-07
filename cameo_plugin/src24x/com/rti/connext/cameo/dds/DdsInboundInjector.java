@@ -15,28 +15,31 @@
  * subscribed to and injected automatically.
  *
  * ============================== IMPORTANT ==============================
- * WHY subscriberPorts (Block name -> Port name), not just subscriberBlockNames:
- * ALH has no sanctioned way to look up "the live instance of Block X" from
- * outside that instance's own running execution (confirmed via a full
- * javap -p dump of ALH's public API — no getObjectsOfType()/findByClassifier()
- * or similar exists). ALH.getContext() only ever resolves to "whichever
- * object is currently running this code" (ContextHelper.findNearestObject()).
- * So there is no way to know, in general, which live object corresponds to
- * a Block name discovered by the scanner.
+ * WHICH PORT TO SEND THROUGH: ALH has no sanctioned way to look up "the live
+ * instance of Block X" from outside that instance's own running execution
+ * (confirmed via a full javap -p dump of ALH's public API — no
+ * getObjectsOfType()/findByClassifier() or similar exists). ALH.getContext()
+ * only ever resolves to "whichever object is currently running this code"
+ * (ContextHelper.findNearestObject()) — in practice the DDS bus / test
+ * environment Block the poll script is placed on, not the subscriber.
  *
- * The workaround used here needs no such lookup: for a dequeued message,
- * try ALH.sendSignal() against EVERY Port name the scan recorded for that
- * topic (across every subscribing Block), using the CALLER's own target
- * (wherever this method was invoked from). ALH.sendSignal(signal, target,
- * portName) looks the named Port up ON the target object itself — a Port
- * name that belongs to a different Block simply isn't found there and
- * throws, caught and skipped here. Exactly one candidate is expected to
- * actually exist on a given target; the rest are for other placements and
- * fail harmlessly. This means a poll script still has to be physically
- * pasted somewhere with a repeating trigger (there's no way around that
- * either, same investigation), but it no longer needs to know which topics
- * or ports belong to it — every placement just tries everything the model
- * says exists, and only what's actually locally deliverable succeeds.
+ * So injection goes the way a real signal would: out of that environment
+ * Block's own Port and along the modeled IBD connector into the subscriber.
+ * The Port names come from ModelTopicScanner (Topic.injectionPorts — the far
+ * end of each connector wired into a subscriber's inbound Port from
+ * outside), so nothing is hardcoded and the environment's Ports can be named
+ * anything and left untyped: only the subscriber's side is part of the
+ * reviewed spec.
+ *
+ * ONE PATH PER SUBSCRIBING BLOCK: each Block that subscribes to a topic has
+ * its own DataReader (in its own participant) feeding its own queue
+ * (DdsSubscriptionQueue.key(block, topic)), and its samples are sent only
+ * through the Port(s) connected to THAT Block. Two modeled Blocks receiving
+ * the same topic therefore each get exactly one copy of every sample, and
+ * each shows up on the DDS bus as its own subscriber — the same behavior as
+ * two separate DDS applications (e.g. an external display) subscribing. The poll script still has to be physically placed on that
+ * environment Block with a repeating trigger (no way around that, same
+ * investigation).
  *
  * WHY the caller's own ALH instance, not `new ALH(session)` here: ALH's
  * getContext()/createObject() etc. only resolve correctly when ALH is the
@@ -55,14 +58,19 @@ import com.nomagic.magicdraw.core.Project;
 import com.nomagic.magicdraw.simulation.utils.ALH;
 import com.nomagic.uml2.ext.magicdraw.classes.mdkernel.Element;
 
-import com.rti.connext.cameo.core.JsonPayloadBuilder;
 import com.rti.connext.cameo.core.ModelTopicScanner;
 import com.rti.connext.cameo.core.TopicModel;
 
 import fUML.Semantics.Classes.Kernel.Object_;
 import fUML.Semantics.CommonBehaviors.Communications.SignalInstance;
 
-import java.util.Map;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 
 public final class DdsInboundInjector {
 
@@ -91,7 +99,8 @@ public final class DdsInboundInjector {
                 String participantConfigName = "DomainParticipantLibrary::" + blockName;
                 String dataReaderName = "Subscriber::" + topic.topicName + "Reader";
                 try {
-                    DDSTopicSubscriber.subscribeOnce(participantConfigName, dataReaderName, topic.topicName);
+                    DDSTopicSubscriber.subscribeOnce(participantConfigName, dataReaderName, topic.topicName,
+                            DdsSubscriptionQueue.key(blockName, topic.topicName));
                 } catch (Exception ex) {
                     log("[DDS Inject] ERROR: subscribeOnce() failed for topic '" + topic.topicName
                             + "' (Block '" + blockName + "') -- " + ex);
@@ -111,8 +120,8 @@ public final class DdsInboundInjector {
     public static void resetForNewRun() {
         TopicModel model = getOrScanTopicModel();
         for (TopicModel.Topic topic : model.topics.values()) {
-            if (!topic.subscriberPorts.isEmpty()) {
-                DdsSubscriptionQueue.clear(topic.topicName);
+            for (String blockName : topic.subscriberPorts.keySet()) {
+                DdsSubscriptionQueue.clear(DdsSubscriptionQueue.key(blockName, topic.topicName));
             }
         }
     }
@@ -121,7 +130,7 @@ public final class DdsInboundInjector {
      * Drains every subscribed topic's queue and injects each pending sample
      * as a live signal targeting {@code target}. See this class's header
      * comment for why {@code alh} must be the caller's own auto-injected
-     * instance, and why every candidate Port for a topic is tried.
+     * instance, and which Port each topic is sent through.
      */
     public static void pollAndInjectAll(ALH alh, Object_ target) {
         if (target == null) {
@@ -130,51 +139,72 @@ public final class DdsInboundInjector {
         }
         TopicModel model = getOrScanTopicModel();
         for (TopicModel.Topic topic : model.topics.values()) {
-            if (topic.subscriberPorts.isEmpty()) {
-                continue;
-            }
-            DdsSubscriptionQueue.PendingMessage pending = DdsSubscriptionQueue.pollNext(topic.topicName);
-            int count = 0;
-            while (pending != null) {
-                count++;
-                injectOne(alh, target, topic, pending);
-                pending = DdsSubscriptionQueue.pollNext(topic.topicName);
-            }
-            if (count > 1) {
-                log("[DDS Inject] Drained " + count + " queued '" + topic.topicName + "' messages this cycle.");
+            for (String blockName : topic.subscriberPorts.keySet()) {
+                String queueKey = DdsSubscriptionQueue.key(blockName, topic.topicName);
+                DdsSubscriptionQueue.PendingMessage pending = DdsSubscriptionQueue.pollNext(queueKey);
+                int count = 0;
+                while (pending != null) {
+                    count++;
+                    injectOne(alh, target, model, topic, blockName, pending);
+                    pending = DdsSubscriptionQueue.pollNext(queueKey);
+                }
+                if (count > 1) {
+                    log("[DDS Inject] Drained " + count + " queued '" + queueKey + "' messages this cycle.");
+                }
             }
         }
     }
 
-    private static void injectOne(ALH alh, Object_ target, TopicModel.Topic topic,
-                                   DdsSubscriptionQueue.PendingMessage pending) {
-        Map<String, Object> fields;
+    private static void injectOne(ALH alh, Object_ target, TopicModel model, TopicModel.Topic topic,
+                                   String blockName, DdsSubscriptionQueue.PendingMessage pending) {
+        Set<String> ports = topic.injectionPorts.get(blockName);
+        if (ports == null || ports.isEmpty()) {
+            log("[DDS Inject] ERROR: nothing is connected to '" + blockName + "." + topic.subscriberPorts.get(blockName)
+                    + "' (receives '" + topic.topicName + "') -- connect it, in an IBD, to a Port on the Block"
+                    + " running the poll script.");
+            return;
+        }
+        TopicModel.StructType type = model.types.get(topic.typeName);
+        if (type == null) {
+            log("[DDS Inject] ERROR: no scanned type '" + topic.typeName + "' for topic '" + topic.topicName + "'.");
+            return;
+        }
+
+        JsonObject json;
         try {
-            fields = JsonPayloadBuilder.parseFlat(pending.jsonPayload);
+            json = JsonParser.parseString(pending.jsonPayload).getAsJsonObject();
         } catch (Exception ex) {
             log("[DDS Inject] ERROR: failed to parse queued JSON payload for '" + topic.topicName + "' -- " + ex);
             return;
         }
 
-        Object_ payloadObject;
-        try {
-            payloadObject = alh.createObject(topic.typeName);
-        } catch (Exception ex) {
-            log("[DDS Inject] ERROR: ALH.createObject('" + topic.typeName + "') threw -- " + ex);
-            return;
-        }
-        if (payloadObject == null) {
-            log("[DDS Inject] ERROR: ALH.createObject('" + topic.typeName
-                    + "') returned null -- either the Block wasn't found, or ALH's context is invalid.");
-            return;
-        }
-
-        for (Map.Entry<String, Object> field : fields.entrySet()) {
-            try {
-                alh.setValue(payloadObject, field.getKey(), field.getValue());
-            } catch (Exception ex) {
-                log("[DDS Inject]   ERROR setting field '" + field.getKey() + "' = " + field.getValue() + " -- " + ex);
+        for (String portName : ports) {
+            SignalInstance signalInstance = buildSignal(alh, model, topic, type, json);
+            if (signalInstance == null) {
+                return; // already logged; would fail the same way for every port
             }
+            try {
+                alh.sendSignal(signalInstance, target, portName);
+                log("[DDS Inject] Injected '" + topic.topicName + "' into '" + blockName + "' via port '" + portName + "'.");
+            } catch (Exception ex) {
+                log("[DDS Inject] ERROR: sending '" + topic.topicName + "' via port '" + portName
+                        + "' failed -- is the poll script running on the Block that owns this Port? " + ex);
+            }
+        }
+    }
+
+    /**
+     * Builds a fresh SignalInstance for {@code topic} whose "data" attribute
+     * holds a new payload object filled from {@code json}. Returns null
+     * (after logging why) if any step fails. Called once per send so that
+     * each Port gets its own copy rather than sharing one object (a Block
+     * normally has one connected Port, but nothing stops a model wiring two).
+     */
+    private static SignalInstance buildSignal(ALH alh, TopicModel model, TopicModel.Topic topic,
+                                              TopicModel.StructType type, JsonObject json) {
+        Object_ payloadObject = createAndFill(alh, model, type, json);
+        if (payloadObject == null) {
+            return null;
         }
 
         SignalInstance signalInstance;
@@ -182,35 +212,97 @@ public final class DdsInboundInjector {
             signalInstance = alh.createSignal(topic.topicName);
         } catch (Exception ex) {
             log("[DDS Inject] ERROR: ALH.createSignal('" + topic.topicName + "') threw -- " + ex);
-            return;
+            return null;
         }
         if (signalInstance == null) {
             log("[DDS Inject] ERROR: ALH.createSignal('" + topic.topicName + "') returned null -- Signal not found by name.");
-            return;
+            return null;
         }
 
         try {
             alh.setValue(signalInstance, ModelTopicScanner.TOPIC_DATA_ATTRIBUTE_NAME, payloadObject);
         } catch (Exception ex) {
             log("[DDS Inject] ERROR: ALH.setValue(signalInstance, \"data\", payloadObject) threw -- " + ex);
-            return;
+            return null;
+        }
+        return signalInstance;
+    }
+
+    /**
+     * Creates an instance of the Block behind {@code type} and sets each of
+     * its fields from {@code json}. A Block-typed (nested) field needs its
+     * own instance first — toSimValue() builds it by calling back into this
+     * method — so any nesting depth works. Returns null (after logging) if
+     * the instance itself can't be created; a single bad field is logged and
+     * skipped.
+     */
+    private static Object_ createAndFill(ALH alh, TopicModel model, TopicModel.StructType type, JsonObject json) {
+        Object_ instance;
+        try {
+            instance = alh.createObject(type.name);
+        } catch (Exception ex) {
+            log("[DDS Inject] ERROR: ALH.createObject('" + type.name + "') threw -- " + ex);
+            return null;
+        }
+        if (instance == null) {
+            log("[DDS Inject] ERROR: ALH.createObject('" + type.name
+                    + "') returned null -- either the Block wasn't found, or ALH's context is invalid.");
+            return null;
         }
 
-        // "dds-bus-listener" is target's own known inbound bus port
-        // (DDS_Simulation_Environment now has two separate ports instead of
-        // one shared "dds-bus" -- "dds-bus-listener" for incoming DDS
-        // traffic, matching a service's own "port_in", and
-        // "dds-bus-sender" for outgoing, matching "port_out". This method
-        // only ever injects INTO the simulation, so it only ever needs the
-        // listener side.) Neither is wired with a per-topic «FlowProperty»
-        // the way port_in/port_out are, so this can't be discovered via the
-        // structural scan the way topic.subscriberPorts is. Known-
-        // convention port name, not derived.
-        try {
-            alh.sendSignal(signalInstance, target, "dds-bus-listener");
-            log("[DDS Inject] SUCCESS: sent '" + topic.topicName + "' via port 'dds-bus-listener'.");
-        } catch (Exception ex) {
-            log("[DDS Inject] ERROR: ALH.sendSignal(signalInstance, target, \"dds-bus-listener\") threw -- " + ex);
+        for (TopicModel.Field field : type.fields) {
+            JsonElement value = json.get(field.name);
+            if (value == null || value.isJsonNull()) {
+                continue;
+            }
+            try {
+                alh.setValue(instance, field.name, toSimValue(alh, model, field, value));
+            } catch (Exception ex) {
+                log("[DDS Inject]   ERROR setting " + type.name + "." + field.name + " = " + value + " -- " + ex);
+            }
+        }
+        return instance;
+    }
+
+    /** Converts one JSON value to what ALH.setValue() expects for {@code
+     *  field}, following the model's declared type rather than the JSON's
+     *  shape (e.g. a float64 sent as 7 still becomes 7.0). An array field
+     *  becomes a List of converted elements. */
+    private static Object toSimValue(ALH alh, TopicModel model, TopicModel.Field field, JsonElement value) {
+        if (field.isArray()) {
+            List<Object> items = new ArrayList<>();
+            for (JsonElement item : value.getAsJsonArray()) {
+                items.add(toSingleValue(alh, model, field, item));
+            }
+            return items;
+        }
+        return toSingleValue(alh, model, field, value);
+    }
+
+    private static Object toSingleValue(ALH alh, TopicModel model, TopicModel.Field field, JsonElement value) {
+        if (field.isNested()) {
+            TopicModel.StructType nestedType = model.types.get(field.nestedStructName);
+            if (nestedType == null) {
+                throw new IllegalStateException("no scanned type '" + field.nestedStructName + "'");
+            }
+            Object_ nested = createAndFill(alh, model, nestedType, value.getAsJsonObject());
+            if (nested == null) {
+                throw new IllegalStateException("could not create '" + field.nestedStructName + "'");
+            }
+            return nested;
+        }
+        if (field.isEnum()) {
+            return value.getAsString(); // RTI's JSON writes enums as their literal name
+        }
+        switch (field.primitiveType == null ? "string" : field.primitiveType) {
+            case "int32":
+                return value.getAsLong();
+            case "float64":
+                return value.getAsDouble();
+            case "boolean":
+                return value.getAsBoolean();
+            default:
+                return value.getAsString();
         }
     }
 
