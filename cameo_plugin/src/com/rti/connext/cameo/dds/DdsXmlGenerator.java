@@ -117,20 +117,22 @@ public final class DdsXmlGenerator {
         }
         xml.append(">\n");
 
-        if (qosProfile.participantName != null) {
-            xml.append("        <domain_participant_qos>\n");
-            xml.append("          <participant_name>\n");
-            xml.append("            <name>").append(escapeAttr(qosProfile.participantName)).append("</name>\n");
-            xml.append("          </participant_name>\n");
-            xml.append("        </domain_participant_qos>\n");
-        }
+        // No participant_name here: the profile is shared configuration, and a
+        // shared name would give every participant the same identity. Each
+        // participant is named after its own Block instead — see
+        // appendDomainParticipantLibrary().
 
+        // A profile section only applies to its own entity kind: writers read
+        // <datawriter_qos>, readers read <datareader_qos>. The depth has to be
+        // in both, or writers silently keep RTI's default KEEP_LAST depth 1.
         if (qosProfile.historyDepth != null) {
-            xml.append("        <datareader_qos>\n");
-            xml.append("          <history>\n");
-            xml.append("            <depth>").append(qosProfile.historyDepth).append("</depth>\n");
-            xml.append("          </history>\n");
-            xml.append("        </datareader_qos>\n");
+            for (String section : new String[] {"datawriter_qos", "datareader_qos"}) {
+                xml.append("        <").append(section).append(">\n");
+                xml.append("          <history>\n");
+                xml.append("            <depth>").append(qosProfile.historyDepth).append("</depth>\n");
+                xml.append("          </history>\n");
+                xml.append("        </").append(section).append(">\n");
+            }
         }
 
         xml.append("      </qos_profile>\n");
@@ -252,7 +254,9 @@ public final class DdsXmlGenerator {
         xml.append("    <domain_participant_library name=\"")
            .append(DOMAIN_PARTICIPANT_LIBRARY_NAME).append("\">\n");
 
-        // CONFIRMED LIVE BUG, fixed here: is_default_qos="true" on the
+        // Every entity below — participant, data_writer, data_reader —
+        // references the profile explicitly. CONFIRMED LIVE BUG, fixed here:
+        // is_default_qos="true" on the
         // <qos_profile> emitted by appendQosLibrary() has NO effect on
         // entities statically declared in a domain_participant_library --
         // each data_writer/data_reader below must explicitly reference the
@@ -277,6 +281,14 @@ public final class DdsXmlGenerator {
             xml.append("      <domain_participant name=\"").append(escapeAttr(blockName))
                .append("\" domain_ref=\"").append(DOMAIN_LIBRARY_NAME).append("::")
                .append(DOMAIN_NAME).append("\">\n");
+            if (qosProfileRef != null) {
+                xml.append("        <domain_participant_qos base_name=\"")
+                   .append(escapeAttr(qosProfileRef)).append("\">\n");
+                xml.append("          <participant_name>\n");
+                xml.append("            <name>").append(escapeAttr(blockName)).append("</name>\n");
+                xml.append("          </participant_name>\n");
+                xml.append("        </domain_participant_qos>\n");
+            }
 
             List<TopicModel.Topic> published = topicsWhere(topics, blockName, true);
             if (!published.isEmpty()) {
