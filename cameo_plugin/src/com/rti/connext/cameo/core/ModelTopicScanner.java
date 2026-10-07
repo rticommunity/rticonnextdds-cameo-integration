@@ -681,15 +681,13 @@ public final class ModelTopicScanner {
             return existing;
         }
 
-        // Per your convention: the Signal has exactly one attribute, named
-        // "data", typed by a Block. Looking it up BY NAME (not just "the
-        // first attribute") catches modeling mistakes early — if no
-        // attribute is named "data", payloadType stays null and typeName
-        // falls through to "UnknownType" below, which is a visible signal
-        // something's wrong rather than silently grabbing the wrong attribute.
-        // TODO: confirm Signal.getOwnedAttribute() — standard UML2 name for
-        // a Signal's attribute list (Signal extends Classifier, which owns
-        // attributes the same way a Class does).
+        // Convention: the Signal has an attribute named "data", typed by the
+        // «Block» that defines the DDS payload type. Looking it up BY NAME (not
+        // just "the first attribute") catches modeling mistakes instead of
+        // silently grabbing the wrong attribute. A Signal that doesn't follow
+        // the convention is skipped with a warning rather than registered:
+        // a topic with no valid type would make RTI reject the entire
+        // generated XML, taking every other topic down with it.
         Type payloadType = null;
         for (Property attr : signal.getOwnedAttribute()) {
             if (TOPIC_DATA_ATTRIBUTE_NAME.equals(attr.getName())) {
@@ -698,14 +696,22 @@ public final class ModelTopicScanner {
             }
         }
 
-        String typeName = "UnknownType";
-        if (payloadType instanceof Class) {
-            Class typeBlock = (Class) payloadType;
-            typeName = typeBlock.getName();
-            buildStructType(typeBlock); // ensures result.types has this entry
+        if (payloadType == null) {
+            log("WARNING: «DDS_Topic» Signal '" + topicName + "' skipped: it needs an attribute named '"
+                    + TOPIC_DATA_ATTRIBUTE_NAME + "', typed by the «Block» that defines its payload.");
+            return null;
         }
 
-        TopicModel.Topic topic = new TopicModel.Topic(topicName, typeName);
+        if (!StereotypesHelper.hasStereotype(payloadType, BLOCK_STEREOTYPE)) {
+            log("WARNING: «DDS_Topic» Signal '" + topicName + "' skipped: its '" + TOPIC_DATA_ATTRIBUTE_NAME
+                    + "' attribute is typed by '" + payloadType.getName() + "', which is not a «Block».");
+            return null;
+        }
+
+        Class typeBlock = (Class) payloadType;
+        buildStructType(typeBlock); // ensures result.types has this entry
+
+        TopicModel.Topic topic = new TopicModel.Topic(topicName, typeBlock.getName());
         result.topics.put(topicName, topic);
         return topic;
     }
