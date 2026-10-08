@@ -216,6 +216,7 @@ echo.
     src\com\rti\connext\cameo\dds\DDSTopicSubscriber.java ^
     src\com\rti\connext\cameo\dds\DdsSubscriptionQueue.java ^
     src\com\rti\connext\cameo\dds\DdsXmlGenerator.java ^
+    src\com\rti\connext\cameo\dds\DdsRuntimeConfig.java ^
     src\com\rti\connext\cameo\dds\ElementPickerUtil.java ^
     src\com\rti\connext\cameo\dds\GenerateDdsXmlAction.java ^
     src\com\rti\connext\cameo\dds\ImportQosProfileAction.java ^

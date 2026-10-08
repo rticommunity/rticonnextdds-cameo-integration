@@ -30,8 +30,6 @@ import com.rti.ndds.config.LoggerDevice;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.URI;
-import java.util.Arrays;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class DDSTopicPublisher {
@@ -41,8 +39,12 @@ public final class DDSTopicPublisher {
     private static final ConcurrentHashMap<String, DomainParticipant> PARTICIPANTS =
             new ConcurrentHashMap<>();
 
-    // Cached file:/// URL for the DDS XML config — resolved on first use.
-    private static volatile String cachedXmlUrl = null;
+    // file:// URL of the config DdsRuntimeConfig generated from the model for
+    // the current simulation run — null until it has run.
+    private static volatile String generatedXmlUrl = null;
+
+    // True when the generated file was rewritten since RTI last loaded it.
+    private static volatile boolean profilesStale = false;
 
     // Set once, on first publishOnce() call — routes NDDS's own internal
     // diagnostic logging into this GUI log. Added specifically because
@@ -148,6 +150,12 @@ public final class DDSTopicPublisher {
         factoryQos.profile.url_profile.clear();
         factoryQos.profile.url_profile.add(xmlUrl);
         DomainParticipantFactory.get_instance().set_qos(factoryQos);
+        if (profilesStale) {
+            // The URL can be identical to last run's while the file's content
+            // changed, which set_qos() alone doesn't detect.
+            DomainParticipantFactory.get_instance().reload_profiles();
+            profilesStale = false;
+        }
 
         DomainParticipant participant = DomainParticipantFactory.get_instance()
                 .create_participant_from_config(participantConfigName);
@@ -172,24 +180,32 @@ public final class DDSTopicPublisher {
     }
 
     // -------------------------------------------------------------------------
-    // XML config resolution (moved here from the now-deleted DDSRunner.java)
+    // XML config resolution
     // -------------------------------------------------------------------------
 
     /**
-     * Resolves the DDS XML Application Creation config URL.
-     *
-     * Search order:
-     *  1. System property  -Dcom.rti.connext.cameo.xmlConfig=&lt;path&gt;
-     *  2. First *.xml file (alphabetically) in &lt;plugin-dir&gt;/resources/,
-     *     where plugin-dir is the parent of the lib/ folder that contains
-     *     this JAR.  This lets users drop in any XML config without rebuilding.
-     *
-     * Returns a file:///... URL string accepted by DomainParticipantFactory.
+     * Makes {@code file} — just generated from the model by DdsRuntimeConfig
+     * — the config for this simulation run, and has RTI re-read its profiles
+     * so a model changed since the previous run takes effect without
+     * restarting CAMEO.
      */
-    private static synchronized String resolveXmlUrl() throws IOException {
-        if (cachedXmlUrl != null) return cachedXmlUrl;
+    static void useGeneratedConfig(File file) {
+        generatedXmlUrl = toFileUrl(file);
+        profilesStale = true; // same path every run, new content: see createParticipant()
+    }
 
-        // --- 1. System property override ---
+    /**
+     * Resolves the DDS XML Application Creation config URL, in order:
+     *  1. -Dcom.rti.connext.cameo.xmlConfig=&lt;path&gt; — an explicit,
+     *     hand-maintained XML always wins.
+     *  2. The config DdsRuntimeConfig generated from the model at the start of
+     *     this simulation run.
+     * There is deliberately no "look for any *.xml in a folder" fallback: it
+     * silently picked whichever file sorted first, including stale ones.
+     *
+     * Returns a file:// URL string accepted by DomainParticipantFactory.
+     */
+    private static String resolveXmlUrl() throws IOException {
         String sysProp = System.getProperty("com.rti.connext.cameo.xmlConfig");
         if (sysProp != null) {
             File f = new File(sysProp);
@@ -197,45 +213,23 @@ public final class DDSTopicPublisher {
                 throw new IOException(
                         "XML config not found at -Dcom.rti.connext.cameo.xmlConfig: " + sysProp);
             }
-            cachedXmlUrl = toFileUrl(f);
-            log("[RTI Connext] Using XML config (property): " + f.getAbsolutePath());
-            return cachedXmlUrl;
+            return toFileUrl(f);
         }
-
-        // --- 2. <plugin-dir>/resources/*.xml ---
-        try {
-            java.security.CodeSource cs =
-                    DDSTopicPublisher.class.getProtectionDomain().getCodeSource();
-            if (cs != null) {
-                URI jarUri   = cs.getLocation().toURI();
-                File libDir  = new File(jarUri).getParentFile();          // …/lib/
-                File resDir  = new File(libDir.getParentFile(), "resources"); // …/resources/
-                File[] xmlFiles = resDir.listFiles(
-                        f -> f.isFile() && f.getName().endsWith(".xml"));
-                if (xmlFiles != null && xmlFiles.length > 0) {
-                    Arrays.sort(xmlFiles);
-                    cachedXmlUrl = toFileUrl(xmlFiles[0]);
-                    log("[RTI Connext] Using XML config: " + xmlFiles[0].getAbsolutePath());
-                    return cachedXmlUrl;
-                }
-                throw new IOException(
-                        "No *.xml file found in " + resDir.getAbsolutePath());
-            }
-        } catch (IOException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new IOException(
-                    "Failed to locate plugin resources directory: " + e.getMessage(), e);
+        String generated = generatedXmlUrl;
+        if (generated != null) {
+            return generated;
         }
-
         throw new IOException(
-                "No DDS XML config found. Place your XML Application Creation file in "
-                + "<plugin-dir>/resources/ or set "
-                + "-Dcom.rti.connext.cameo.xmlConfig=<path> in CAMEO's JVM options.");
+                "No DDS XML config: start the simulation with RegisterDdsEngineListener.groovy, which"
+                + " generates it from the model, or set -Dcom.rti.connext.cameo.xmlConfig=<path>"
+                + " in CAMEO's JVM options.");
     }
 
+    /** file:// URL for {@code f} on any OS: file:///C:/dir/x.xml on Windows,
+     *  file:///tmp/x.xml on Linux. */
     private static String toFileUrl(File f) {
-        return "file:///" + f.getAbsolutePath().replace('\\', '/');
+        String path = f.getAbsolutePath().replace('\\', '/');
+        return "file://" + (path.startsWith("/") ? "" : "/") + path;
     }
 
     /**

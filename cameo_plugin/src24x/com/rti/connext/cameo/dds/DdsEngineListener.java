@@ -466,6 +466,10 @@ public class DdsEngineListener extends SimulationExecutionListener implements En
     }
 
     private TopicModel getOrScanTopicModel() {
+        TopicModel generated = DdsRuntimeConfig.currentModel();
+        if (generated != null) {
+            return generated; // the same scan this run's DDS XML was generated from
+        }
         TopicModel model = cachedTopicModel;
         if (model == null) {
             Project project = Application.getInstance().getProject();

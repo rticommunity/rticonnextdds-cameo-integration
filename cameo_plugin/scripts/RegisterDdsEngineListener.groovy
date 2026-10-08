@@ -28,6 +28,10 @@
 
 def guiLog = com.nomagic.magicdraw.core.Application.getInstance().getGUILog()
 
+// Generate the DDS XML config from the model for this run (see
+// DdsRuntimeConfig) -- before anything creates a DDS participant.
+com.rti.connext.cameo.dds.DdsRuntimeConfig.prepare()
+
 try {
     def engine = _session_.getEngine()
     def execution = _session_.getExecution()

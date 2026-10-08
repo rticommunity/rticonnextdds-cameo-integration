@@ -372,6 +372,10 @@ public final class DdsInboundInjector {
     }
 
     private static TopicModel getOrScanTopicModel() {
+        TopicModel generated = DdsRuntimeConfig.currentModel();
+        if (generated != null) {
+            return generated; // the same scan this run's DDS XML was generated from
+        }
         TopicModel model = cachedModel;
         if (model == null) {
             Project project = Application.getInstance().getProject();
