@@ -56,9 +56,11 @@ package com.rti.connext.cameo.dds;
 import com.nomagic.magicdraw.core.Application;
 import com.nomagic.magicdraw.core.Project;
 import com.nomagic.magicdraw.simulation.utils.ALH;
+import com.nomagic.uml2.ext.magicdraw.classes.mdkernel.Class;
 import com.nomagic.uml2.ext.magicdraw.classes.mdkernel.Element;
 
 import com.rti.connext.cameo.core.ModelTopicScanner;
+import com.rti.connext.cameo.core.SimulationScope;
 import com.rti.connext.cameo.core.TopicModel;
 
 import fUML.Semantics.Classes.Kernel.Object_;
@@ -69,6 +71,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -81,12 +84,53 @@ public final class DdsInboundInjector {
     // own caches.
     private static volatile TopicModel cachedModel;
 
+    // Names of the Blocks in the running simulation (see SimulationScope),
+    // set once per run by setSimulationScope(). Inbound subscriptions are
+    // only started for these, so a DDS Block elsewhere in the project that
+    // isn't being simulated stays off the bus. Null = no scope was set (an
+    // older registration script): every subscribing Block is used.
+    private static volatile Set<String> simulationScope;
+
     private DdsInboundInjector() {
     }
 
     /**
+     * Restricts inbound DDS to the Blocks in the simulation started on
+     * {@code simulatedElement} (SimulationSession.getElement() — a Block, a
+     * «SimulationConfig», ...). Call once at simulation bootstrap, before
+     * resetForNewRun()/subscribeAll(), from RegisterDdsEngineListener.groovy.
+     */
+    public static void setSimulationScope(Element simulatedElement) {
+        Class root = SimulationScope.resolveRootBlock(simulatedElement);
+        if (root == null) {
+            simulationScope = null;
+            log("[DDS Inject] WARNING: could not find the Block being simulated (from '"
+                    + simulatedElement + "') -- subscribing for every DDS Block in the project.");
+            return;
+        }
+        Set<String> scope = SimulationScope.blockNamesIn(root);
+        simulationScope = scope;
+
+        Set<String> subscribersInScope = new LinkedHashSet<>();
+        for (TopicModel.Topic topic : getOrScanTopicModel().topics.values()) {
+            for (String blockName : topic.subscriberPorts.keySet()) {
+                if (scope.contains(blockName)) {
+                    subscribersInScope.add(blockName);
+                }
+            }
+        }
+        log("[DDS Inject] Simulating '" + root.getName() + "' -- DDS subscribers in this simulation: "
+                + (subscribersInScope.isEmpty() ? "none" : subscribersInScope));
+    }
+
+    private static boolean inScope(String blockName) {
+        Set<String> scope = simulationScope;
+        return scope == null || scope.contains(blockName);
+    }
+
+    /**
      * Subscribes to every «DDS_Topic»-stereotyped Signal the model wires as
-     * inbound on any Block. Idempotent per topic (delegates to
+     * inbound on a Block in the simulation scope. Idempotent per topic (delegates to
      * DDSTopicSubscriber.subscribeOnce()) — safe, and expected, to call on
      * every poll cycle for self-healing, the same reason the old
      * per-topic-hardcoded version did. Does NOT touch any queued backlog —
@@ -96,6 +140,9 @@ public final class DdsInboundInjector {
         TopicModel model = getOrScanTopicModel();
         for (TopicModel.Topic topic : model.topics.values()) {
             for (String blockName : topic.subscriberPorts.keySet()) {
+                if (!inScope(blockName)) {
+                    continue;
+                }
                 String participantConfigName = "DomainParticipantLibrary::" + blockName;
                 String dataReaderName = "Subscriber::" + topic.topicName + "Reader";
                 try {
@@ -121,6 +168,9 @@ public final class DdsInboundInjector {
         TopicModel model = getOrScanTopicModel();
         for (TopicModel.Topic topic : model.topics.values()) {
             for (String blockName : topic.subscriberPorts.keySet()) {
+                if (!inScope(blockName)) {
+                    continue;
+                }
                 DdsSubscriptionQueue.clear(DdsSubscriptionQueue.key(blockName, topic.topicName));
             }
         }
@@ -140,6 +190,9 @@ public final class DdsInboundInjector {
         TopicModel model = getOrScanTopicModel();
         for (TopicModel.Topic topic : model.topics.values()) {
             for (String blockName : topic.subscriberPorts.keySet()) {
+                if (!inScope(blockName)) {
+                    continue;
+                }
                 String queueKey = DdsSubscriptionQueue.key(blockName, topic.topicName);
                 DdsSubscriptionQueue.PendingMessage pending = DdsSubscriptionQueue.pollNext(queueKey);
                 int count = 0;
@@ -311,6 +364,7 @@ public final class DdsInboundInjector {
      *  DdsEngineListener's executionTerminated() overloads). */
     public static void shutdown() {
         cachedModel = null;
+        simulationScope = null;
     }
 
     private static TopicModel getOrScanTopicModel() {

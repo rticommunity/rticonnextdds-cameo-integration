@@ -219,6 +219,7 @@ echo.
     src\com\rti\connext\cameo\core\ModelTopicScanner.java ^
     src\com\rti\connext\cameo\core\ScanModelForTopicsAction.java ^
     src\com\rti\connext\cameo\core\JsonPayloadBuilder.java ^
+    src\com\rti\connext\cameo\core\SimulationScope.java ^
     src\com\rti\connext\cameo\dds\DDSTopicPublisher.java ^
     src\com\rti\connext\cameo\dds\DDSTopicSubscriber.java ^
     src\com\rti\connext\cameo\dds\DdsSubscriptionQueue.java ^
