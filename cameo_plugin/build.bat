@@ -10,23 +10,51 @@
 :: to use the software.
 ::
 :: =============================================================================
-:: build.bat — Build the RTI Connext DDS CAMEO System Modeler 2024x Plugin
+:: build.bat — Build the RTI Connext DDS plugin for CAMEO 2024x or 2026x
+::
+:: Usage
+::   build.bat 2024x           (release build — uses nddsjava.jar)
+::   build.bat 2026x debug     (debug build   — uses nddsjavad.jar)
+::   The version can be left out if CAMEO_VERSION is already set in this
+::   window (setup_rti_config.bat does that).
 ::
 :: Prerequisites
 ::   NDDSHOME   — RTI Connext DDS installation root
-::                e.g.  set NDDSHOME=C:\RTI\rti_connext_dds-7.7.0
-::   CAMEO_HOME — CAMEO System Modeler 2024x installation root
-::                e.g.  set CAMEO_HOME=C:\Program Files\Cameo Systems Modeler
+::                e.g.  set NDDSHOME=C:\Program Files\rti_connext_dds-7.5.0
+::   CAMEO_HOME — installation root of the CAMEO version being built for
+::                e.g.  set CAMEO_HOME=C:\Program Files\Magic Systems of Systems Architect
+::   RTIJDKHOME — optional JDK root (default: javac on PATH). REQUIRED for
+::                2026x: its own jre\ ships no javac, and its API jars are
+::                Java 21 bytecode (class file version 65), which an older JDK
+::                such as 2024x's bundled JDK 17 cannot read ("class file has
+::                wrong version 65.0, should be 61.0" — confirmed live).
+::
+:: The two versions differ only in src24x\ vs src26x\ (fUML runtime types
+:: moved package between CST versions) and the output folder.
 ::
 :: Output (relative to this script)
-::   build\nddsjava.jar        — copied from %NDDSHOME%\lib\java\nddsjava.jar
-::   build\RTIConnextPlugin.jar — compiled plugin JAR (contains ShapeType.xml)
-::
-:: Usage
-::   build.bat           (release build — uses nddsjava.jar)
-::   build.bat debug     (debug build   — uses nddsjavad.jar)
+::   build\<version>\nddsjava.jar         — copied from %NDDSHOME%\lib\java\
+::   build\<version>\RTIConnextPlugin.jar — compiled plugin JAR
 :: =============================================================================
 setlocal enabledelayedexpansion
+
+:: ---------------------------------------------------------------------------
+:: Arguments: CAMEO version (2024x | 2026x) and optional "debug", any order.
+:: ---------------------------------------------------------------------------
+set "BUILD_MODE=release"
+for %%a in (%*) do (
+    if /i "%%~a"=="debug" (set "BUILD_MODE=debug") else (set "CAMEO_VERSION=%%~a")
+)
+if /i "%CAMEO_VERSION%"=="2024x" (
+    set "SRC_VERSION_DIR=src24x"
+) else if /i "%CAMEO_VERSION%"=="2026x" (
+    set "SRC_VERSION_DIR=src26x"
+) else (
+    echo ERROR: unknown or missing CAMEO version "%CAMEO_VERSION%".
+    echo        Usage: build.bat 2024x^|2026x [debug]
+    exit /b 1
+)
+set "OUT=build\%CAMEO_VERSION%"
 
 :: Strip any surrounding quotes / trailing backslash that users may have
 :: included in the set command. Each variable must be guarded by "if defined"
@@ -91,16 +119,17 @@ if errorlevel 1 (
         exit /b 1
     )
 )
+if /i "%CAMEO_VERSION%"=="2026x" if not defined RTIJDKHOME (
+    echo WARNING: building for 2026x with javac from PATH -- it must be JDK 21+.
+)
 
 :: ---------------------------------------------------------------------------
 :: 2. Select the Connext Java JAR (release vs debug)
 :: ---------------------------------------------------------------------------
-if /i "%1"=="debug" (
+if /i "%BUILD_MODE%"=="debug" (
     set "NDDSJAVA_JAR=%NDDSHOME%\lib\java\nddsjavad.jar"
-    set "BUILD_MODE=debug"
 ) else (
     set "NDDSJAVA_JAR=%NDDSHOME%\lib\java\nddsjava.jar"
-    set "BUILD_MODE=release"
 )
 
 if not exist "%NDDSJAVA_JAR%" (
@@ -166,19 +195,19 @@ for /d %%d in ("%NDDSHOME%\lib\x64Win64*") do (
 
 :: ---------------------------------------------------------------------------
 :: 5. Create output directories
-::    Wipe build\classes first — javac -d never deletes stale .class files
+::    Wipe %OUT%\classes first — javac -d never deletes stale .class files
 ::    for since-removed .java sources, and the packaging step below jars up
-::    everything under build\classes, so leftover classes from a deleted
+::    everything under %OUT%\classes, so leftover classes from a deleted
 ::    source file would silently ride along into RTIConnextPlugin.jar.
 :: ---------------------------------------------------------------------------
-if exist build\classes rmdir /s /q build\classes
-mkdir build\classes
+if exist "%OUT%\classes" rmdir /s /q "%OUT%\classes"
+mkdir "%OUT%\classes"
 
 :: ---------------------------------------------------------------------------
 :: 6. Copy nddsjava.jar into build\ (plugin runtime dependency)
 :: ---------------------------------------------------------------------------
-echo Copying %NDDSJAVA_JAR% ^-^> build\nddsjava.jar
-copy /Y "%NDDSJAVA_JAR%" build\nddsjava.jar >nul
+echo Copying %NDDSJAVA_JAR% ^-^> %OUT%\nddsjava.jar
+copy /Y "%NDDSJAVA_JAR%" %OUT%\nddsjava.jar >nul
 
 :: ---------------------------------------------------------------------------
 :: 7. Compile plugin Java sources
@@ -196,23 +225,23 @@ copy /Y "%NDDSJAVA_JAR%" build\nddsjava.jar >nul
 ::    SendSignalAction activations during simulation, and (DDSTopicSubscriber/
 ::    DdsSubscriptionQueue) receives inbound DDS samples and queues them for
 ::    a Groovy polling script to inject back into a running simulation via
-::    ALH.sendSignal() — see scripts/PollDdsSubscriptionAndInject.groovy).
+::    ALH.sendSignal() — see groovy/PollDdsSubscriptionAndInject.groovy).
 ::    If you add more source files later, they must
 ::    be added here too, or switch this to a recursive dir /s /b *.java loop
 ::    instead.
 :: ---------------------------------------------------------------------------
-set "CLASSPATH=build\nddsjava.jar;%CAMEO_HOME%\lib\*;%CST_PLUGIN_DIR%\lib\*;%CST_PLUGIN_DIR%\*"
+set "CLASSPATH=%OUT%\nddsjava.jar;%CAMEO_HOME%\lib\*;%CST_PLUGIN_DIR%\lib\*;%CST_PLUGIN_DIR%\*"
 
 echo.
-echo Compiling plugin (%BUILD_MODE%)...
+echo Compiling plugin (%BUILD_MODE%, %CAMEO_VERSION%)...
 echo   javac          : %JAVAC%
 echo   CAMEO md.jar   : %MD_JAR%
 echo   Connext JAR    : %NDDSJAVA_JAR%
-echo   Sources        : src\com\rti\connext\cameo\*.java (+ core\*.java, dds\*.java)
-echo   Output dir     : build\classes\
+echo   Sources        : src\ + %SRC_VERSION_DIR%\
+echo   Output dir     : %OUT%\classes\
 echo.
 
-"%JAVAC%" -d build\classes -classpath "%CLASSPATH%" ^
+"%JAVAC%" -d %OUT%\classes -classpath "%CLASSPATH%" ^
     src\com\rti\connext\cameo\RTIConnextPlugin.java ^
     src\com\rti\connext\cameo\RTIConnextActionsConfigurator.java ^
     src\com\rti\connext\cameo\core\TopicModel.java ^
@@ -228,9 +257,9 @@ echo.
     src\com\rti\connext\cameo\dds\ElementPickerUtil.java ^
     src\com\rti\connext\cameo\dds\GenerateDdsXmlAction.java ^
     src\com\rti\connext\cameo\dds\ImportQosProfileAction.java ^
-    src24x\com\rti\connext\cameo\dds\FumlValueBridge.java ^
-    src24x\com\rti\connext\cameo\dds\DdsEngineListener.java ^
-    src24x\com\rti\connext\cameo\dds\DdsInboundInjector.java
+    %SRC_VERSION_DIR%\com\rti\connext\cameo\dds\FumlValueBridge.java ^
+    %SRC_VERSION_DIR%\com\rti\connext\cameo\dds\DdsEngineListener.java ^
+    %SRC_VERSION_DIR%\com\rti\connext\cameo\dds\DdsInboundInjector.java
 
 if errorlevel 1 (
     echo.
@@ -239,11 +268,11 @@ if errorlevel 1 (
 )
 
 :: ---------------------------------------------------------------------------
-:: 8. Package into build\RTIConnextPlugin.jar
+:: 8. Package into %OUT%\RTIConnextPlugin.jar
 ::    Resources are NOT embedded — they are deployed separately by install.bat.
 :: ---------------------------------------------------------------------------
-echo Packaging ^-^> build\RTIConnextPlugin.jar
-"%JAR_TOOL%" cf build\RTIConnextPlugin.jar -C build\classes .
+echo Packaging ^-^> %OUT%\RTIConnextPlugin.jar
+"%JAR_TOOL%" cf %OUT%\RTIConnextPlugin.jar -C %OUT%\classes .
 
 if errorlevel 1 (
     echo ERROR: JAR creation failed.
@@ -255,12 +284,12 @@ if errorlevel 1 (
 :: ---------------------------------------------------------------------------
 echo.
 echo ============================================================
-echo  Build complete (%BUILD_MODE%)
+echo  Build complete (%BUILD_MODE%, %CAMEO_VERSION%)
 echo ============================================================
-echo  build\RTIConnextPlugin.jar  - plugin classes
-echo  build\nddsjava.jar          - Connext Java API
+echo  %OUT%\RTIConnextPlugin.jar  - plugin classes
+echo  %OUT%\nddsjava.jar          - Connext Java API
 echo.
-echo  Next step: run install.bat to deploy to CAMEO.
+echo  Next step: run install.bat %CAMEO_VERSION% to deploy to CAMEO.
 if not "!NDDSHOME_ARCH_DIR!"=="" (
     echo.
     echo  IMPORTANT: Add the following to the system PATH before starting CAMEO

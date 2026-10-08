@@ -2,8 +2,8 @@
  * DdsEngineListener.java — CAMEO 2026x variant. See
  * src24x/.../DdsEngineListener.java for the 2024x original this was ported
  * from, and for the full investigation history behind this design (kept
- * there in full rather than duplicated here). Picked up by build_26x.bat;
- * build.bat picks up the src24x/ copy instead.
+ * there in full rather than duplicated here). Picked up by build.bat 2026x;
+ * build.bat 2024x picks up the src24x/ copy instead.
  *
  * ONLY DIFFERENCE FROM THE 2024x VERSION, confirmed via `javap -p` against
  * CST 2026x Refresh1's simulation.toolkit.core jar (2026.1.0) vs 2024x's
@@ -16,7 +16,7 @@
  * publishes to DDS whenever a SendSignalAction on a «DDS_Topic»-stereotyped
  * Signal fires during a Cameo Simulation Toolkit run.
  *
- * Registration: see scripts/RegisterDdsEngineListener.groovy — a Groovy
+ * Registration: see groovy/RegisterDdsEngineListener.groovy — a Groovy
  * Opaque Behavior body that must run exactly ONCE at simulation start.
  *
  * DESIGN: elementActivated() fires first (with the Element/owning-Block

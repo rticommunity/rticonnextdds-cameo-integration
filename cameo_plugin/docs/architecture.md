@@ -116,7 +116,7 @@ setup_rti_config.bat          Convenience script: sets NDDSHOME/CAMEO_HOME/RTIJD
                                env vars and opens a configured shell (self-elevates)
 resources/ShapeType.xml       A *demo* XML config, unrelated to Generate DDS XML's
                                output — see Known gaps
-scripts/RegisterDdsEngineListener.groovy
+groovy/RegisterDdsEngineListener.groovy
                                Groovy snippet the user pastes into a CST Opaque
                                Behavior to register DdsEngineListener at sim start
 ```
@@ -697,7 +697,7 @@ that actually imports `com.rti.dds.*` (the Connext Java API / `nddsjava`).
 ### `DdsEngineListener.java`
 
 `extends SimulationExecutionListener implements EngineListener`. Registered
-manually by the user pasting `scripts/RegisterDdsEngineListener.groovy` into
+manually by the user pasting `groovy/RegisterDdsEngineListener.groovy` into
 a Groovy Opaque Behavior that must fire **exactly once** at simulation start
 (registering it more than once means duplicate publishes). The script does
 two registrations on the one listener instance:
@@ -1009,7 +1009,7 @@ QoS picker (above) later finds via `findQosProfiles()`.
 
 ```
 Simulation start (once):
-  Groovy Opaque Behavior runs scripts/RegisterDdsEngineListener.groovy
+  Groovy Opaque Behavior runs groovy/RegisterDdsEngineListener.groovy
     → listener = new dds.DdsEngineListener(_session_)
     → _session_.getEngine().addEngineListener(listener)
     → _session_.getExecution().addSimulationListener(listener)
@@ -1197,7 +1197,7 @@ throughout, including for the signal's own `data` attribute.
    `SensorReport`-adjacent topics and now also subscribes to `Health`), so
    reusing the cache avoids creating a second participant for one that
    already exists.
-3. **`scripts/PollDdsSubscriptionAndInject.groovy`** — pasted as the effect
+3. **`groovy/PollDdsSubscriptionAndInject.groovy`** — pasted as the effect
    of a self-transition on `DDS_Simulation_Environment`'s `CONFIGURE DDS
    INCOMING` state, driven by a repeating relative Time Event. Each firing:
    1. `DDSTopicSubscriber.subscribeOnce(...)` — self-healing re-subscribe,

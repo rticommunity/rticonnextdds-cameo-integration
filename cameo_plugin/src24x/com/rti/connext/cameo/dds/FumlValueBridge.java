@@ -4,7 +4,7 @@
  * com.nomagic.magicdraw.simulation.fuml.* between these two CST versions —
  * confirmed via javap against both installs' simulation.toolkit.core jars;
  * source-incompatible, hence two copies rather than one shared file). Picked
- * up by build.bat; build_26x.bat picks up the src26x/ copy instead. Every
+ * up by build.bat 2024x; build.bat 2026x picks up the src26x/ copy instead. Every
  * other file in this package is fully shared between both builds.
  *
  * FumlValueBridge.java — the ONE deliberately-accepted internal-API-adjacent

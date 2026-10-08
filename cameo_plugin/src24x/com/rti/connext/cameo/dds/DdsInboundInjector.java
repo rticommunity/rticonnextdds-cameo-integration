@@ -3,7 +3,7 @@
  * src26x/.../DdsInboundInjector.java for the 2026x port (Object_/
  * SignalInstance moved from fUML.Semantics.* to
  * com.nomagic.magicdraw.simulation.fuml.* in that CST version). Picked up by
- * build.bat; build_26x.bat picks up the src26x/ copy instead.
+ * build.bat 2024x; build.bat 2026x picks up the src26x/ copy instead.
  *
  * DdsInboundInjector.java — fully generic inbound DDS -> live-signal
  * injection, driven entirely by ModelTopicScanner's structural scan. No

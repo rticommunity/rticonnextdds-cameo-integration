@@ -3,7 +3,7 @@
  * Mirrors DDSTopicPublisher.java's structure (lazy/cached DomainParticipant,
  * plain-String public API, same shutdown()-on-simulation-end pattern) for
  * the opposite direction: external DDS samples -> DdsSubscriptionQueue,
- * where a Groovy polling script (see scripts/PollDdsSubscriptionAndInject.
+ * where a Groovy polling script (see groovy/PollDdsSubscriptionAndInject.
  * groovy) picks them up and injects them into the live simulation.
  *
  * DomainParticipant creation/caching is delegated to DDSTopicPublisher.

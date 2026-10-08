@@ -3,13 +3,13 @@
  * src26x/.../DdsEngineListener.java for the 2026x port — same logic; the only
  * difference is the SignalInstance import, since fUML.Semantics.* moved to
  * com.nomagic.magicdraw.simulation.fuml.* in that CST version (confirmed via
- * javap against the 2026x install). Picked up by build.bat; build_26x.bat
+ * javap against the 2026x install). Picked up by build.bat 2024x; build.bat 2026x
  * picks up the src26x/ copy instead.
  *
  * DdsEngineListener.java — publishes to DDS whenever a SendSignalAction on a
  * «DDS_Topic»-stereotyped Signal fires during a Cameo Simulation Toolkit run.
  *
- * Registration: see scripts/RegisterDdsEngineListener.groovy — a Groovy
+ * Registration: see groovy/RegisterDdsEngineListener.groovy — a Groovy
  * Opaque Behavior body that must run exactly ONCE at simulation start.
  *
  * ============================== IMPORTANT ==============================

@@ -268,8 +268,8 @@ public final class DdsXmlGenerator {
         // Service"'s own historyDepth setting was ever actually applied to
         // HealthWriter/GatedReportWriter/SensorReportReader -- confirmed by
         // reproducing the exact same bug in this project's hand-authored
-        // test configs (see cameo_plugin/test_tools/sensor_report_publisher/
-        // SensorReport.xml's own comment on this): with only
+        // test configs (see SensorReport.xml's own comment on this, in the
+        // SAGE demo repository linked from the README): with only
         // is_default_qos="true" and no explicit reference, a keyless
         // topic's second same-instance sample deterministically overwrote
         // the first before any reader read it, every single time.

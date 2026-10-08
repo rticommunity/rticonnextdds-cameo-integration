@@ -10,18 +10,34 @@
 :: to use the software.
 ::
 :: =============================================================================
-:: install.bat — Deploy the RTI Connext DDS plugin to CAMEO System Modeler 2024x
+:: install.bat — Deploy the RTI Connext DDS plugin to CAMEO 2024x or 2026x
+::
+:: Usage
+::   install.bat 2024x | 2026x
+::   The version can be left out if CAMEO_VERSION is already set in this
+::   window (setup_rti_config.bat does that).
 ::
 :: Prerequisites
-::   CAMEO_HOME — CAMEO installation root (same as used in build.bat)
-::   The plugin must have been built first with build.bat.
+::   CAMEO_HOME — installation root of that CAMEO version (same as build.bat)
+::   The plugin must have been built first with build.bat <version>.
+::   Writing under Program Files needs an elevated (Administrator) prompt.
 ::
 :: What this script does
 ::   1. Creates  %CAMEO_HOME%\plugins\com.rti.connext.cameo\
-::   2. Copies   plugin.xml  and  build\*.jar  into that directory's lib\
+::   2. Copies   plugin\<version>\plugin.xml (declares the matching Cameo
+::               Simulation Toolkit version) and build\<version>\*.jar into it
 ::   3. Prints a reminder about the native library PATH requirement
 :: =============================================================================
 setlocal enabledelayedexpansion
+
+if not "%~1"=="" set "CAMEO_VERSION=%~1"
+if /i not "%CAMEO_VERSION%"=="2024x" if /i not "%CAMEO_VERSION%"=="2026x" (
+    echo ERROR: unknown or missing CAMEO version "%CAMEO_VERSION%".
+    echo        Usage: install.bat 2024x^|2026x
+    exit /b 1
+)
+set "OUT=build\%CAMEO_VERSION%"
+set "PLUGIN_XML=plugin\%CAMEO_VERSION%\plugin.xml"
 
 :: Strip any surrounding quotes / trailing backslash that users may have
 :: included in the set command. Each variable must be guarded by "if defined"
@@ -44,13 +60,13 @@ if defined NDDSHOME (
 
 if "%CAMEO_HOME%"=="" (
     echo ERROR: CAMEO_HOME is not set.
-    echo        Set it to the CAMEO System Modeler installation root, e.g.:
-    echo          set CAMEO_HOME=C:\Program Files\Cameo Systems Modeler
+    echo        Set it to the CAMEO %CAMEO_VERSION% installation root, e.g.:
+    echo          set CAMEO_HOME=C:\Program Files\Magic Systems of Systems Architect
     exit /b 1
 )
 
-if not exist build\RTIConnextPlugin.jar (
-    echo ERROR: build\RTIConnextPlugin.jar not found. Run build.bat first.
+if not exist "%OUT%\RTIConnextPlugin.jar" (
+    echo ERROR: %OUT%\RTIConnextPlugin.jar not found. Run build.bat %CAMEO_VERSION% first.
     exit /b 1
 )
 
@@ -72,34 +88,31 @@ if not exist "%PLUGIN_DIR%\lib" (
     exit /b 1
 )
 
-copy /Y plugin.xml               "%PLUGIN_DIR%\plugin.xml" >nul
+copy /Y "%PLUGIN_XML%"            "%PLUGIN_DIR%\plugin.xml" >nul
 if errorlevel 1 (
-    echo ERROR: Failed to copy plugin.xml to "%PLUGIN_DIR%".
+    echo ERROR: Failed to copy %PLUGIN_XML% to "%PLUGIN_DIR%".
     echo        Run this script from an elevated ^(Administrator^) command prompt.
     exit /b 1
 )
-copy /Y build\RTIConnextPlugin.jar "%PLUGIN_DIR%\lib\"     >nul
+copy /Y "%OUT%\RTIConnextPlugin.jar" "%PLUGIN_DIR%\lib\"     >nul
 if errorlevel 1 (
-    echo ERROR: Failed to copy build\RTIConnextPlugin.jar to "%PLUGIN_DIR%\lib".
+    echo ERROR: Failed to copy %OUT%\RTIConnextPlugin.jar to "%PLUGIN_DIR%\lib".
     echo        Run this script from an elevated ^(Administrator^) command prompt.
     exit /b 1
 )
-copy /Y build\nddsjava.jar         "%PLUGIN_DIR%\lib\"     >nul
+copy /Y "%OUT%\nddsjava.jar"         "%PLUGIN_DIR%\lib\"     >nul
 if errorlevel 1 (
-    echo ERROR: Failed to copy build\nddsjava.jar to "%PLUGIN_DIR%\lib".
+    echo ERROR: Failed to copy %OUT%\nddsjava.jar to "%PLUGIN_DIR%\lib".
     echo        Run this script from an elevated ^(Administrator^) command prompt.
     exit /b 1
 )
-if not exist "%PLUGIN_DIR%\resources" mkdir "%PLUGIN_DIR%\resources"
-xcopy /Y /E resources\* "%PLUGIN_DIR%\resources\"         >nul
-if errorlevel 1 (
-    echo ERROR: Failed to copy resources\* to "%PLUGIN_DIR%\resources".
-    echo        Run this script from an elevated ^(Administrator^) command prompt.
-    exit /b 1
-)
+:: Older versions installed a resources\ folder with a DDS XML config. The
+:: config is now generated from the model at every simulation start, so a
+:: leftover copy is removed rather than left lying around.
+if exist "%PLUGIN_DIR%\resources" rmdir /s /q "%PLUGIN_DIR%\resources"
 
 echo ============================================================
-echo  Plugin installed successfully.
+echo  Plugin installed successfully ^(%CAMEO_VERSION%^).
 echo ============================================================
 echo.
 echo  REQUIRED: add the Connext native library folder to the system

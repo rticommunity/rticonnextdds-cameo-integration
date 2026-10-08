@@ -1,7 +1,7 @@
 /*
  * DdsInboundInjector.java — CAMEO 2026x variant. See
  * src24x/.../DdsInboundInjector.java for the 2024x original this was ported
- * from. Picked up by build_26x.bat; build.bat picks up the src24x/ copy
+ * from. Picked up by build.bat 2026x; build.bat 2024x picks up the src24x/ copy
  * instead.
  *
  * ONLY DIFFERENCE FROM THE 2024x VERSION: Object_/SignalInstance moved out of
