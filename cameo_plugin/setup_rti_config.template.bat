@@ -55,7 +55,7 @@ echo ============================================================
 
 :: --- Core environment variables ---
 set NDDSHOME=C:\Program Files\rti_connext_dds-7.5.0
-set RTI_LICENSE_FILE=%USERPROFILE%\rti_workspace\7.5.0\rti_license.dat
+set RTI_LICENSE_FILE=%USERPROFILE%\Documents\rti_workspace\7.5.0\rti_license.dat
 if /i "%CAMEO_VERSION%"=="2024x" (
     set "CAMEO_HOME=C:\Program Files\Magic Systems of Systems Architect"
     rem 2024x's bundled jre\ is a JDK 17 and includes javac.
