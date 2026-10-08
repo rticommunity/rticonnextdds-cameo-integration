@@ -2,6 +2,8 @@
 
 Integration components for using **RTI Connext DDS** with **CAMEO Systems Modeler**.
 
+**Status**: Under development. Not ready for use.
+
 ---
 
 ## Components
