@@ -2,6 +2,8 @@
 
 Connect SysML models in CAMEO to real RTI Connext DDS traffic.
 
+**Status**: Under development. Not ready for use.
+
 | Directory | What it is |
 |---|---|
 | [`cameo_plugin/`](cameo_plugin/) | CAMEO plugin that lets a running SysML simulation (Cameo Simulation Toolkit) publish and receive real DDS samples. The DDS configuration is generated from the model. Supports CAMEO 2024x and 2026x. |

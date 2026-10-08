@@ -161,7 +161,8 @@ public final class DDSTopicPublisher {
                 .create_participant_from_config(participantConfigName);
         if (participant == null) {
             throw new RuntimeException(
-                    "Failed to create DomainParticipant from '" + participantConfigName + "'.");
+                    "Failed to create DomainParticipant from '" + participantConfigName + "'. "
+                            + "Check that a valid RTI Connext DDS license is installed.");
         }
         return participant;
     }
