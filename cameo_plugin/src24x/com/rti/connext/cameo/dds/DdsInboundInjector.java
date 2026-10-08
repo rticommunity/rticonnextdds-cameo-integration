@@ -364,7 +364,10 @@ public final class DdsInboundInjector {
      *  DdsEngineListener's executionTerminated() overloads). */
     public static void shutdown() {
         cachedModel = null;
-        simulationScope = null;
+        // simulationScope is deliberately kept: the registration script's own
+        // short-lived execution ends (and triggers this) right after setting
+        // it, before the poll script re-subscribes. The next run's
+        // setSimulationScope() replaces it.
     }
 
     private static TopicModel getOrScanTopicModel() {
