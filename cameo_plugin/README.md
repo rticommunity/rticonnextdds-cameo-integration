@@ -1,162 +1,134 @@
-# RTI Connext DDS — CAMEO System Modeler Plugin
+# RTI Connext DDS — CAMEO Plugin
 
-A CAMEO System Modeler plugin that connects a live SysML simulation to real
-RTI Connext DDS traffic: it scans a model for `«DDS_Topic»`-stereotyped
-Signals, generates a matching DDS XML Application Creation config, and — while
-a Cameo Simulation Toolkit (CST) run is active — publishes real DDS samples
-when a modeled Signal fires and injects real inbound DDS samples back into the
-simulation as live signals.
+Makes a running SysML simulation a live node on an RTI Connext DDS bus:
 
-Supports **CAMEO 2024x** and **2026x** from one set of scripts: pass the
-version (`build.bat 2024x`, `install.bat 2026x`, ...). The two Cameo
-Simulation Toolkit versions moved some fUML runtime types between packages,
-so each has a small override (`src24x/` or `src26x/`); everything under
-`src/` is shared.
+- **Outbound:** when the model sends a `«DDS_Topic»` Signal, the plugin
+  publishes it as a real DDS sample.
+- **Inbound:** DDS samples received from other applications are injected
+  into the running simulation as Signals, through the model's own ports and
+  connectors.
+- **Configuration:** the DDS XML (types, topics, participants, QoS) is
+  generated from the model at every simulation start, so it can't drift from
+  the model.
 
-**For the full design — every class, the design-time scan/generate flow, the
-simulation-time publish/subscribe pipeline, the required SysML/DDS profile
-shape, and the current list of known gaps — see
-[`docs/architecture.md`](docs/architecture.md).** This file only covers
-building, installing, and running it.
+Works with CAMEO **2024x** and **2026x** (with Cameo Simulation Toolkit).
+How it works internally: [`docs/architecture.md`](docs/architecture.md).
 
-## Layout
+---
 
-| Path | Contents |
-|---|---|
-| `build.bat`, `install.bat`, `uninstall.bat`, `run_cameo.bat` | Build, deploy, remove, launch |
-| `setup_rti_config.template.bat` | Per-machine environment setup (copy, then edit) |
-| `plugin/2024x/`, `plugin/2026x/` | `plugin.xml` for each CAMEO version |
-| `groovy/` | Scripts pasted into the model's Opaque Behaviors |
-| `src/` | Shared Java sources (`core/` model scanning, `dds/` RTI Connext) |
-| `src24x/`, `src26x/` | Version-specific overrides |
-| `docs/` | Architecture and design notes |
-| `build/<version>/` | Build output (git-ignored) |
+## Quick start (Windows)
+
+1. Copy `setup_rti_config.template.bat` to `setup_rti_config.bat` (git-ignored)
+   and edit the paths under "Core environment variables".
+2. Run `setup_rti_config.bat 2024x` (or `2026x`; double-clicking asks). It
+   opens an Administrator command window with the environment set.
+3. In that window: `build.bat`, `install.bat`, then `run_cameo.bat`.
+4. Set up your model as described in [Model setup](#model-setup).
+
+### Prerequisites
+
+| | 2024x | 2026x |
+|---|---|---|
+| RTI Connext DDS 7.x | `NDDSHOME`, `RTI_LICENSE_FILE` | same |
+| CAMEO install root | `CAMEO_HOME` | `CAMEO_HOME` |
+| JDK for building | 17+ (CAMEO's bundled `jre\` works) | **21+** (CAMEO's `jre\` has no compiler) — set `RTIJDKHOME` |
+
+### Building and installing by hand
+
+```bat
+set NDDSHOME=C:\Program Files\rti_connext_dds-7.5.0
+set CAMEO_HOME=C:\Program Files\Magic Systems of Systems Architect
+set RTIJDKHOME=<JDK root>
+build.bat 2024x            :: add "debug" to link nddsjavad.jar
+install.bat 2024x          :: needs an Administrator prompt
+```
+
+The build goes to `build\<version>\`; `install.bat` copies it and
+`plugin\<version>\plugin.xml` to `%CAMEO_HOME%\plugins\com.rti.connext.cameo\`.
+`uninstall.bat` removes that folder.
+
+Before starting CAMEO, RTI's native libraries must be on `PATH`
+(`%NDDSHOME%\lib\x64Win64VS2017`) and `RTI_LICENSE_FILE` must be set — the
+setup window does both, and `run_cameo.bat` launches CAMEO from it.
+
+---
+
+## Model setup
+
+### 1. Describe the topics
+
+- Apply **`DDS_Profile`** to your project (see
+  [architecture.md](docs/architecture.md#required-model-shape) for its
+  stereotypes; it isn't shipped with this repository yet).
+- Create one **`«DDS_Domain»`** package and set its `domain_id`.
+- In it, model each topic as a **`«DDS_Topic»` Signal** with one attribute
+  named **`data`**, typed by the **`«Block»`** that defines the message.
+  That Block's value properties become the DDS fields; Blocks typing part
+  properties become nested structs, `[N]` multiplicity a fixed array, and a
+  UML Enumeration an enum.
+
+### 2. Say who publishes and subscribes
+
+Give each service Block a **port typed by an `«InterfaceBlock»`** whose
+**`«FlowProperty»`s** are typed by topic Signals: `out` = publishes,
+`in` = subscribes. Each such Block becomes a DDS participant named after it.
+
+### 3. Connect a "bus" for inbound data
+
+Add a harness Block (e.g. `DDS_Simulation_Environment`) that contains your
+service as a part. Give the harness a port (it can stay untyped) and connect
+it in an IBD to the service's subscribing port. Received samples are sent
+out of that port, so they reach the service over the connector you drew.
+
+### 4. Add the two Groovy scripts
+
+| Script | Paste into | When it runs |
+|---|---|---|
+| [`groovy/RegisterDdsEngineListener.groovy`](groovy/RegisterDdsEngineListener.groovy) | An Opaque Behavior that runs **once** at simulation start (e.g. an entry action of the harness's initial state) | Generates the DDS config, limits DDS to the Blocks being simulated, starts the listener and subscriptions |
+| [`groovy/PollDdsSubscriptionAndInject.groovy`](groovy/PollDdsSubscriptionAndInject.groovy) | The effect of a **repeating** transition on the harness Block (e.g. a Time Event self-transition) | Injects received samples; the interval sets the inbound latency |
+
+Update these in your model whenever you update the plugin.
+
+### 5. Run
+
+Simulate the harness Block (right-click > Simulate, or a Simulation
+Configuration). The Notification window shows:
+
+```
+[RTI Connext] Generated DDS config from the model (domain 'X', id 0): <temp>\rti_cameo\<Project>_dds_generated.xml
+[DDS Inject] Simulating 'DDS_Simulation_Environment' -- DDS subscribers in this simulation: [SAGE]
+[DDS Listener] Publishing Publisher::GatedReportWriter <- {...}
+[DDS Inject] Injected 'SensorReport' into 'SAGE' via port 'dds-bus-listener'.
+```
+
+Only Blocks that are part of the simulated Block's composition go on the
+DDS bus. To run a hand-maintained XML instead of the generated one, start
+CAMEO with `-Dcom.rti.connext.cameo.xmlConfig=<path>`.
 
 ---
 
 ## Tools menu
 
-Once installed, CAMEO's **Tools** menu gets an **RTI Connext DDS** submenu
-with three actions:
+**Tools > RTI Connext DDS**:
 
-- **Scan Model for DDS Topics** — debug tool; logs every DDS Topic/type found
-  in the open project.
-- **Generate DDS XML** — exports the DDS XML Application Creation config for
-  a `«DDS_Domain»` package to a file of your choice (e.g. to hand to another
-  team). Not needed to run a simulation: see below.
-- **Import QoS Profile** — reads an RTI Connext QoS profile XML file and
-  creates a corresponding `«DDS_QosProfile»` model element.
-
-Simulation-time publish/inject happens automatically while a CST run is
-active, once `groovy/RegisterDdsEngineListener.groovy` is placed in the model
-(see [`docs/architecture.md`](docs/architecture.md)). At every simulation
-start the plugin **generates the DDS config from the model** and logs where
-it wrote it (`<temp>/rti_cameo/<Project>_dds_generated.xml`), so the
-configuration can't drift from the model. To run a hand-maintained XML
-instead, start CAMEO with `-Dcom.rti.connext.cameo.xmlConfig=<path>`.
-
----
-
-## Prerequisites
-
-| Requirement | 2024x | 2026x |
-|---|---|---|
-| **RTI Connext DDS 7.x** | `NDDSHOME` must be set | same |
-| **CAMEO / Magic Systems of Systems Architect** | `CAMEO_HOME` — 2024x install root | `CAMEO_HOME` — 2026x (Magic Cyber Systems Engineer) install root |
-| **JDK** | 17+ (`RTIJDKHOME`, or `javac` 17+ on PATH) | 21+ (`RTIJDKHOME`, or `javac` 21+ on PATH) — 2026x's own bundled `jre\` has no compiler |
-
----
-
-## Quick start
-
-1. Copy `setup_rti_config.template.bat` to `setup_rti_config.bat` (git-ignored)
-   and edit the paths under "Core environment variables" for your machine.
-2. Run `setup_rti_config.bat 2024x` (or `2026x`, or double-click it and type
-   the version). It opens an Administrator command window with everything set.
-3. In that window: `build.bat`, then `install.bat`, then `run_cameo.bat`.
-
-The sections below describe each step for doing it by hand.
-
----
-
-## Build
-
-```bat
-set NDDSHOME=C:\Program Files\rti_connext_dds-7.5.0
-set CAMEO_HOME=C:\Program Files\Magic Systems of Systems Architect
-set RTIJDKHOME=<path to a JDK 17+, or 21+ for 2026x>
-cd cameo_plugin
-build.bat 2024x
-```
-
-For 2026x, point `CAMEO_HOME` at the 2026x (Magic Cyber Systems Engineer)
-install and run `build.bat 2026x`. The script copies
-`%NDDSHOME%\lib\java\nddsjava.jar` into `build\<version>\`, compiles the shared
-`src/` sources plus that version's `src24x/`/`src26x/` override, and packages
-`build\<version>\RTIConnextPlugin.jar`. Add `debug` (e.g. `build.bat 2026x
-debug`) to link against `nddsjavad.jar` instead. If `CAMEO_VERSION` is set in
-the window (the setup script does that), the version can be left out.
-
----
-
-## Native library setup (required)
-
-The Connext Java API (`nddsjava.jar`) needs its native DLLs
-(`%NDDSHOME%\lib\<arch>\`, e.g. `x64Win64VS2017`) findable before CAMEO
-starts:
-
-```bat
-set PATH=%NDDSHOME%\lib\x64Win64VS2017;%PATH%
-```
-
-...or add `-Djava.library.path=<that path>` to `<CAMEO_HOME>\bin\*.vmoptions`.
-`setup_rti_config.bat` does this (and sets `RTI_LICENSE_FILE`) for the
-window it opens.
-
----
-
-## Install
-
-Requires **Administrator privileges** (writes under `Program Files`).
-
-```bat
-set CAMEO_HOME=<install root of the CAMEO version you built for>
-install.bat 2024x        :: or install.bat 2026x
-```
-
-Copies `plugin\<version>\plugin.xml` and `build\<version>\*.jar` into
-`%CAMEO_HOME%\plugins\com.rti.connext.cameo\`. `uninstall.bat` removes that
-folder entirely; safe to re-run.
-
-`run_cameo.bat` launches whichever of `bin\msosa.exe` (2024x) or
-`bin\mcse.exe` (2026x) exists under `%CAMEO_HOME%`, for convenience.
-
----
-
-## Required model shape
-
-The model needs a `«DDS_Domain»` package containing `«DDS_Topic»`-stereotyped
-Signals, each typed by a Block whose properties become the DDS struct's
-members (`«DDS_Member»` stereotype for key/max-length tags), and Blocks
-wired via Ports/InterfaceBlocks/FlowProperties to mark which Block
-publishes/subscribes to which topic. **See [`docs/architecture.md`](docs/architecture.md)'s "Required
-SysML/DDS profile shape" section for the full, exact stereotype/tag
-reference** — this is the part most worth reading before modeling a new
-service against this plugin.
+- **Scan Model for DDS Topics** — logs every topic and type the plugin finds.
+- **Generate DDS XML** — exports the config for a `«DDS_Domain»` to a file,
+  e.g. to hand to another team. Not needed for simulation.
+- **Import QoS Profile** — creates a `«DDS_QosProfile»` element from an RTI
+  QoS XML file.
 
 ---
 
 ## Troubleshooting
 
-| Symptom | Likely cause | Fix |
-|---|---|---|
-| `Tools → RTI Connext DDS` not visible | Plugin not installed for the CAMEO version you're running | Confirm you ran `install.bat 2024x` or `install.bat 2026x` to match the CAMEO you start |
-| `NDDSHOME is not set` / `CAMEO_HOME is not set` | Env var missing at build time | Set both before running `build.bat`, or use `setup_rti_config.bat` |
-| `UnsatisfiedLinkError: nddsjava` | Native DLLs not found | Add `%NDDSHOME%\lib\x64Win64VS2017` (or your arch) to PATH before starting CAMEO |
-| `RTI Connext DDS No source for License information` / `Failed to create DomainParticipant` | `RTI_LICENSE_FILE` not set for the process | Set `RTI_LICENSE_FILE` before starting CAMEO (or the standalone tool hitting this) |
-| `class file has wrong version` during build | Wrong JDK for the CAMEO version | 2024x needs a JDK 17+ compiler, 2026x needs 21+ — set `RTIJDKHOME` explicitly |
-| Generated XML fails to load / `RTIXMLObject_addChild` duplicate-name error | A payload Block shares its name with its Signal | See `docs/architecture.md`'s `DdsXmlGenerator.java` section — `register_type` names get a `_Type` suffix specifically to avoid this |
-
-For anything not covered here — how a specific class works, why a design
-decision was made, or the current list of known gaps — `docs/architecture.md` is
-the maintained source of truth.
+| Symptom | Fix |
+|---|---|
+| No **Tools > RTI Connext DDS** menu | Run `install.bat` for the CAMEO version you start (`2024x` vs `2026x`), then restart CAMEO. |
+| `UnsatisfiedLinkError: nddsjava` | Add `%NDDSHOME%\lib\x64Win64VS2017` to `PATH` before starting CAMEO (or use `run_cameo.bat` from the setup window). |
+| `No source for License information` / participant creation fails | Set `RTI_LICENSE_FILE` before starting CAMEO. |
+| `class file has wrong version` while building | Wrong JDK: 2024x needs 17+, 2026x needs 21+. Set `RTIJDKHOME`. |
+| `found N «DDS_Domain» packages` | The generated config supports exactly one `«DDS_Domain»` per project. |
+| `«DDS_Topic» Signal 'X' skipped: ...` | Give the Signal an attribute named `data` typed by a `«Block»`. |
+| `nothing is connected to 'Block.port'` | Connect the subscriber's inbound port to a port on the harness Block in an IBD (step 3). |
+| A Block joins the DDS bus when it isn't simulated | Update `RegisterDdsEngineListener.groovy` in your model; older copies don't set the simulation scope. |
+| Two samples sent back to back, only one arrives | Topics without a DDS key keep only the latest sample by default. Import a QoS profile with a `history_depth` and mark it `is_default`. |

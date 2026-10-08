@@ -5,13 +5,12 @@
 // "CONFIGURE DDS INCOMING" state).
 //
 // No topic/participant/reader/payload/port names hardcoded here or in
-// DdsInboundInjector — every «DDS_Topic» the model wires up as inbound is
-// discovered, subscribed, and injected automatically. See
-// DdsInboundInjector.java's header comment for the full design (why
-// ALH itself is passed in rather than reconstructed, why every candidate
-// Port for a topic is tried against this placement's target, and why a
-// script still has to be physically pasted somewhere with a repeating
-// trigger — there's no way around that part).
+// DdsInboundInjector — every inbound «DDS_Topic» of the Blocks being
+// simulated is subscribed and injected automatically, out of the port on
+// this Block that the model connects to each subscriber. See
+// DdsInboundInjector.java's header comment for the full design (why ALH
+// itself is passed in rather than reconstructed, and why a script has to
+// be placed somewhere with a repeating trigger).
 try {
     com.rti.connext.cameo.dds.DdsInboundInjector.subscribeAll()
     com.rti.connext.cameo.dds.DdsInboundInjector.pollAndInjectAll(ALH, ALH.getContext())

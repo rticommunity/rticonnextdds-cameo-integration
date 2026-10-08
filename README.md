@@ -1,30 +1,26 @@
 # RTI Connext DDS — CAMEO Integration
 
-Integration components for using **RTI Connext DDS** with **CAMEO Systems Modeler**.
+Connect SysML models in CAMEO to real RTI Connext DDS traffic.
 
----
-
-## Components
-
-| Directory | Description |
+| Directory | What it is |
 |---|---|
-| [`cameo_plugin/`](cameo_plugin/) | CAMEO System Modeler 2024x plugin that runs a DDS `ShapeType` publisher/subscriber in-process, adding a "RTI Connext DDS" entry to the Tools menu. Includes its own build (`build.bat`) and deploy (`install.bat`) scripts. |
-| [`wis/`](wis/) | Example integration using **RTI Web Integration Service (WIS)** to publish `ShapeType` samples to DDS via REST, driven from a CAMEO Groovy opaque behavior. |
+| [`cameo_plugin/`](cameo_plugin/) | CAMEO plugin that lets a running SysML simulation (Cameo Simulation Toolkit) publish and receive real DDS samples. The DDS configuration is generated from the model. Supports CAMEO 2024x and 2026x. |
+| [`wis/`](wis/) | Example: publishing `ShapeType` samples to DDS through RTI Web Integration Service (REST), driven from a CAMEO Groovy behavior. |
 
-Each component is self-contained with its own `README.md` covering prerequisites,
-build/run instructions, and troubleshooting — start there for details.
+Each directory has its own README with setup instructions.
 
----
+## Demo
 
-## Prerequisites (common to both components)
+A full multi-service demo built on the plugin — a sensor emulator, a SysML
+service model running in CAMEO, a C++ track-association service, and a live
+Python display, all talking over DDS — lives in a separate repository:
+[sage-demo-pipeline](https://gitlab.com/notesandnotches-group/sage-demo-pipeline).
 
-- **RTI Connext DDS 7.x** (`NDDSHOME` set)
-- **CAMEO Systems Modeler 2024x**
+## Prerequisites
 
-See each component's README for additional setup specific to that integration.
-
----
+- RTI Connext DDS 7.x
+- CAMEO 2024x or 2026x with Cameo Simulation Toolkit (for `cameo_plugin/`)
 
 ## License
 
-You can find the license here [LICENSE](LICENSE).
+See [LICENSE](LICENSE).

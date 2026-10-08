@@ -16,15 +16,14 @@
 // values via FumlValueBridge/ALH and publishes to DDS). See
 // DdsEngineListener.java for the rest of that listener's logic.
 //
-// Also subscribes to every inbound «DDS_Topic» the model wires up (see
-// PollDdsSubscriptionAndInject.groovy for the injection half). Fully
-// generic — DdsInboundInjector.subscribeAll() finds every topic itself via
-// ModelTopicScanner; nothing is hardcoded here. subscribeOnce() (called
-// per topic inside it) is idempotent, so this is safe to call from here
-// even though — confirmed live — the Activity containing this script runs
-// as its own short-lived execution that tears itself down before the real
-// simulation starts; PollDdsSubscriptionAndInject.groovy re-subscribes
-// every poll cycle to self-heal from that.
+// Before that, generates the DDS XML config from the model for this run
+// (DdsRuntimeConfig). After it, limits inbound DDS to the Blocks in the
+// simulated Block's composition (setSimulationScope) and subscribes them
+// (see PollDdsSubscriptionAndInject.groovy for the injection half).
+// Nothing is hardcoded here. The Activity containing this script runs as
+// its own short-lived execution that ends before the real simulation
+// starts (confirmed live), which tears the subscriptions down again;
+// PollDdsSubscriptionAndInject.groovy re-subscribes every cycle to recover.
 
 def guiLog = com.nomagic.magicdraw.core.Application.getInstance().getGUILog()
 
