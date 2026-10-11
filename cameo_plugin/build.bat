@@ -241,7 +241,7 @@ echo   Sources        : src\ + %SRC_VERSION_DIR%\
 echo   Output dir     : %OUT%\classes\
 echo.
 
-"%JAVAC%" -d %OUT%\classes -classpath "%CLASSPATH%" ^
+"%JAVAC%" -encoding UTF-8 -d %OUT%\classes -classpath "%CLASSPATH%" ^
     src\com\rti\connext\cameo\RTIConnextPlugin.java ^
     src\com\rti\connext\cameo\RTIConnextActionsConfigurator.java ^
     src\com\rti\connext\cameo\core\TopicModel.java ^

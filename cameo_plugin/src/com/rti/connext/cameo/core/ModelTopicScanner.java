@@ -341,7 +341,6 @@ public final class ModelTopicScanner {
             List<String> participantValues = StereotypesHelper.getStereotypePropertyValueAsString(
                     qosProfileElement, qosProfileStereotype, QOS_PARTICIPANT_NAME_TAG, false);
             participantName = (participantValues == null || participantValues.isEmpty()) ? null : participantValues.get(0);
-            log("QosProfile '" + qosProfileElement.getName() + "' — raw 'participant_name' tag: '" + participantName + "'");
 
             // NOTE: raw-value accessor, not getStereotypePropertyValueAsString() —
             // "history_depth" is a plain Integer tag, same shape as domain_id/max,
@@ -350,13 +349,11 @@ public final class ModelTopicScanner {
             List<?> depthValues = StereotypesHelper.getStereotypePropertyValue(
                     qosProfileElement, qosProfileStereotype, QOS_HISTORY_DEPTH_TAG);
             Object rawDepth = (depthValues == null || depthValues.isEmpty()) ? null : depthValues.get(0);
-            log("QosProfile '" + qosProfileElement.getName() + "' — raw 'history_depth' value: '" + rawDepth + "'");
             historyDepth = rawDepth instanceof Number ? ((Number) rawDepth).intValue() : null;
 
             List<String> defaultValues = StereotypesHelper.getStereotypePropertyValueAsString(
                     qosProfileElement, qosProfileStereotype, QOS_IS_DEFAULT_TAG, false);
             String rawDefault = (defaultValues == null || defaultValues.isEmpty()) ? null : defaultValues.get(0);
-            log("QosProfile '" + qosProfileElement.getName() + "' — raw 'is_default' tag: '" + rawDefault + "'");
             isDefault = rawDefault != null && "true".equalsIgnoreCase(rawDefault.trim());
         }
 
@@ -573,8 +570,6 @@ public final class ModelTopicScanner {
         List<String> directionValues = StereotypesHelper.getStereotypePropertyValueAsString(
                 flowProperty, flowPropertyStereotype, FLOW_DIRECTION_TAG_NAME, false);
         String rawDirection = (directionValues == null || directionValues.isEmpty()) ? null : directionValues.get(0);
-        log("FlowProperty '" + flowProperty.getName() + "' on Block '" + block.getName()
-                + "' — raw direction value: '" + rawDirection + "'");
 
         Type flowType = flowProperty.getType();
         if (!(flowType instanceof Signal)) {
@@ -793,7 +788,6 @@ public final class ModelTopicScanner {
         List<String> values = StereotypesHelper.getStereotypePropertyValueAsString(
                 prop, memberStereotype, MEMBER_KEY_TAG_NAME, false);
         String rawValue = (values == null || values.isEmpty()) ? null : values.get(0);
-        log("Property '" + prop.getName() + "' stereotyped «DDS_Member» — raw 'key' tag: '" + rawValue + "'");
         return rawValue != null && "true".equalsIgnoreCase(rawValue.trim());
     }
 
@@ -819,7 +813,6 @@ public final class ModelTopicScanner {
         }
         List<?> values = StereotypesHelper.getStereotypePropertyValue(prop, memberStereotype, MEMBER_MAX_TAG_NAME);
         Object rawValue = (values == null || values.isEmpty()) ? null : values.get(0);
-        log("Property '" + prop.getName() + "' stereotyped «DDS_Member» — raw 'max' value: '" + rawValue + "'");
         return rawValue instanceof Number ? ((Number) rawValue).intValue() : null;
     }
 
@@ -839,7 +832,6 @@ public final class ModelTopicScanner {
     private Integer readArrayDimension(Property prop) {
         int lower = prop.getLower();
         int upper = prop.getUpper();
-        log("Property '" + prop.getName() + "' multiplicity — lower=" + lower + " upper=" + upper);
         if (upper == lower && upper > 1) {
             return upper;
         }
@@ -866,7 +858,6 @@ public final class ModelTopicScanner {
         for (EnumerationLiteral literal : enumType.getOwnedLiteral()) {
             literalNames.add(literal.getName());
         }
-        log("Enumeration '" + name + "' — literals: " + literalNames);
         result.enums.put(name, new TopicModel.EnumType(name, literalNames));
     }
 
