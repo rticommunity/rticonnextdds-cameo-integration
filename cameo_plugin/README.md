@@ -4,15 +4,37 @@ Makes a running SysML simulation a live node on an RTI Connext DDS bus:
 
 - **Outbound:** when the model sends a `«DDS_Topic»` Signal, the plugin
   publishes it as a real DDS sample.
-- **Inbound:** DDS samples received from other applications are injected
-  into the running simulation as Signals, through the model's own ports and
-  connectors.
+- **Inbound:** DDS samples from other applications are injected into the
+  running simulation as Signals, through the model's own ports and connectors.
 - **Configuration:** the DDS XML (types, topics, participants, QoS) is
   generated from the model at every simulation start, so it can't drift from
   the model.
 
-Works with CAMEO **2024x** and **2026x** (with Cameo Simulation Toolkit).
-How it works internally: [`docs/architecture.md`](docs/architecture.md).
+Works with CAMEO **2024x** and **2026x**. How it works internally:
+[`docs/architecture.md`](docs/architecture.md).
+
+**What you need:** CAMEO 2024x or 2026x with Cameo Simulation Toolkit, and RTI
+Connext DDS 7.x with a valid license (RTI offers evaluation licenses). Without
+RTI Connext you can still read the code and open the models, but not build or
+run the plugin.
+
+---
+
+## Models
+
+[`DDS_Models/`](DDS_Models/) holds three CAMEO projects, each using the one
+below it. Keep them in the same folder: CAMEO finds the used projects next to
+the one you open.
+
+| Model | What it is |
+|---|---|
+| **`DDS_Profile.mdzip`** | The language: the `«DDS_Topic»`, `«DDS_Domain»`, `«DDS_Member»` and QoS stereotypes, plus the reusable **DDS test harness** (`DDS_Simulation_Environment`). Every model that uses the plugin needs it. |
+| **`DDS_Message_Library.mdzip`** | The interface (ICD) of the demo system: its topics, message types, enums and QoS profile, in a `«DDS_Domain»`. |
+| **`SAGE.mdzip`** | An example service built against that interface — the Sensor Alignment and Gating Service — with a Test Context that runs it on the DDS bus. |
+
+The other applications of the demo (sensor emulator, track association
+service, live display) are in a separate repository:
+[sage-demo-pipeline](https://gitlab.com/notesandnotches-group/sage-demo-pipeline).
 
 ---
 
@@ -23,7 +45,8 @@ How it works internally: [`docs/architecture.md`](docs/architecture.md).
 2. Run `setup_rti_config.bat 2024x` (or `2026x`; double-clicking asks). It
    opens an Administrator command window with the environment set.
 3. In that window: `build.bat`, `install.bat`, then `run_cameo.bat`.
-4. Set up your model as described in [Model setup](#model-setup).
+4. Open `DDS_Models/SAGE.mdzip` and simulate the `Test` Block, or set up your
+   own model as described in [Model setup](#model-setup).
 
 ### Prerequisites
 
@@ -55,55 +78,74 @@ setup window does both, and `run_cameo.bat` launches CAMEO from it.
 
 ## Model setup
 
-### 1. Describe the topics
+### 1. Use the profile
 
-- Apply **`DDS_Profile`** to your project (see
-  [architecture.md](docs/architecture.md#required-model-shape) for its
-  stereotypes; it isn't shipped with this repository yet).
+In your project, use **`DDS_Profile.mdzip`** (File > Use Project). It brings
+the stereotypes and the test harness.
+
+### 2. Describe the interface
+
+Typically in its own message-library project, like `DDS_Message_Library.mdzip`:
+
 - Create one **`«DDS_Domain»`** package and set its `domain_id`.
-- In it, model each topic as a **`«DDS_Topic»` Signal** with one attribute
-  named **`data`**, typed by the **`«Block»`** that defines the message.
-  That Block's value properties become the DDS fields; Blocks typing part
-  properties become nested structs, `[N]` multiplicity a fixed array, and a
-  UML Enumeration an enum.
+- Model each topic as a **`«DDS_Topic»` Signal** with one attribute named
+  **`data`**, typed by the **`«Block»`** that defines the message. Its value
+  properties become the DDS fields; Blocks typing part properties become
+  nested structs, an `[N]` multiplicity a fixed-size array, and a UML
+  Enumeration an enum.
+- Optionally, add a `«DDS_QosProfile»` (Tools > RTI Connext DDS > Import QoS
+  Profile) and mark it `is_default`.
 
-### 2. Say who publishes and subscribes
+The topic, field and type names are the contract with every other application
+on the bus: renaming one in the model is an interface change.
+
+### 3. Say who publishes and subscribes
 
 Give each service Block a **port typed by an `«InterfaceBlock»`** whose
 **`«FlowProperty»`s** are typed by topic Signals: `out` = publishes,
 `in` = subscribes. Each such Block becomes a DDS participant named after it.
+A specialized Block (e.g. an implementation of a definition Block) is treated
+as the Block it specializes.
 
-### 3. Connect a "bus" for inbound data
+### 4. Create a Test Context
 
-Add a harness Block (e.g. `DDS_Simulation_Environment`) that contains your
-service as a part. Give the harness a port (it can stay untyped) and connect
-it in an IBD to the service's subscribing port. Received samples are sent
-out of that port, so they reach the service over the connector you drew.
+1. Create a Block that **specializes `DDS_Simulation_Environment`** from the
+   profile. It inherits the harness state machine, which generates the DDS
+   configuration, starts DDS and injects received samples every 5 seconds.
+2. **Redefine `SYSTEM_UNDER_TEST`** and type it by your service Block.
+3. In an IBD of the Test Context, **connect the inherited `dds-bus-listener`
+   port to your service's subscribing port**. Received samples are sent out of
+   `dds-bus-listener`, so they reach the service over that connector.
+   (`dds-bus-sender` can be connected to the service's publishing port for
+   readability; the plugin publishes directly from the service.)
+4. Optionally, **implement `runTest`**: the harness calls this operation in
+   parallel with DDS polling, and your Test Context's method for it drives the
+   test (for example, sending inputs to the system under test and checking
+   what it publishes).
 
-### 4. Add the two Groovy scripts
-
-| Script | Paste into | When it runs |
-|---|---|---|
-| [`groovy/RegisterDdsEngineListener.groovy`](groovy/RegisterDdsEngineListener.groovy) | An Opaque Behavior that runs **once** at simulation start (e.g. an entry action of the harness's initial state) | Generates the DDS config, limits DDS to the Blocks being simulated, starts the listener and subscriptions |
-| [`groovy/PollDdsSubscriptionAndInject.groovy`](groovy/PollDdsSubscriptionAndInject.groovy) | The effect of a **repeating** transition on the harness Block (e.g. a Time Event self-transition) | Injects received samples; the interval sets the inbound latency |
-
-Update these in your model whenever you update the plugin.
+The Groovy bodies of the harness's two Opaque Behaviors are kept in
+[`groovy/`](groovy/): `register_dds_engine_listener` ←
+[`RegisterDdsEngineListener.groovy`](groovy/RegisterDdsEngineListener.groovy),
+`poll_dds_subscription_inject` ←
+[`PollDdsSubscriptionAndInject.groovy`](groovy/PollDdsSubscriptionAndInject.groovy).
+They are already in `DDS_Profile.mdzip`; update them there whenever these
+files change.
 
 ### 5. Run
 
-Simulate the harness Block (right-click > Simulate, or a Simulation
+Simulate the Test Context (right-click > Simulate, or a Simulation
 Configuration). The Notification window shows:
 
 ```
-[RTI Connext] Generated DDS config from the model (domain 'X', id 0): <temp>\rti_cameo\<Project>_dds_generated.xml
-[DDS Inject] Simulating 'DDS_Simulation_Environment' -- DDS subscribers in this simulation: [SAGE]
+[RTI Connext] Generated DDS config from the model (domain 'DDS_Schema', id 0): <temp>\rti_cameo\SAGE_dds_generated.xml
+[DDS Inject] Simulating 'Test' -- DDS subscribers in this simulation: [Sensor Alignment and Gating Service]
+[DDS Inject] Injected 'SensorReport' into 'Sensor Alignment and Gating Service' via port 'dds-bus-listener'.
 [DDS Listener] Publishing Publisher::GatedReportWriter: {...}
-[DDS Inject] Injected 'SensorReport' into 'SAGE' via port 'dds-bus-listener'.
 ```
 
-Only Blocks that are part of the simulated Block's composition go on the
-DDS bus. To run a hand-maintained XML instead of the generated one, start
-CAMEO with `-Dcom.rti.connext.cameo.xmlConfig=<path>`.
+Only the Blocks in the simulated Block's composition go on the DDS bus. To run
+a hand-maintained XML instead of the generated one, start CAMEO with
+`-Dcom.rti.connext.cameo.xmlConfig=<path>`.
 
 ---
 
@@ -124,11 +166,13 @@ CAMEO with `-Dcom.rti.connext.cameo.xmlConfig=<path>`.
 | Symptom | Fix |
 |---|---|
 | No **Tools > RTI Connext DDS** menu | Run `install.bat` for the CAMEO version you start (`2024x` vs `2026x`), then restart CAMEO. |
+| `No such property: com for class: Script…` | The plugin isn't loaded in this CAMEO session: run `install.bat` and restart CAMEO. |
 | `UnsatisfiedLinkError: nddsjava` | Add `%NDDSHOME%\lib\x64Win64VS2017` to `PATH` before starting CAMEO (or use `run_cameo.bat` from the setup window). |
 | `No source for License information` / participant creation fails | Set `RTI_LICENSE_FILE` before starting CAMEO. |
 | `class file has wrong version` while building | Wrong JDK: 2024x needs 17+, 2026x needs 21+. Set `RTIJDKHOME`. |
 | `found N «DDS_Domain» packages` | The generated config supports exactly one `«DDS_Domain»` per project. |
 | `«DDS_Topic» Signal 'X' skipped: ...` | Give the Signal an attribute named `data` typed by a `«Block»`. |
-| `nothing is connected to 'Block.port'` | Connect the subscriber's inbound port to a port on the harness Block in an IBD (step 3). |
-| A Block joins the DDS bus when it isn't simulated | Update `RegisterDdsEngineListener.groovy` in your model; older copies don't set the simulation scope. |
-| Two samples sent back to back, only one arrives | Topics without a DDS key keep only the latest sample by default. Import a QoS profile with a `history_depth` and mark it `is_default`. |
+| `DDS subscribers in this simulation: none` | The simulated Block's composition contains no subscribing Block: check that `SYSTEM_UNDER_TEST` is redefined and typed by your service. |
+| `nothing is connected to 'Block.port'` | Connect `dds-bus-listener` to the service's subscribing port in the Test Context's IBD (step 4). |
+| Another application doesn't receive a topic | Its type name must match the model's: RTI's discovery log shows `type names for topic 'X' do not match`. |
+| Two samples sent back to back, only one arrives | Topics without a DDS key keep only the latest sample by default. Use a QoS profile with a `history_depth`, marked `is_default`. |

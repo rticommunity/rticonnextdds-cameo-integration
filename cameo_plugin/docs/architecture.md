@@ -5,6 +5,7 @@ How the plugin is put together and why. For installing and using it, see the
 
 - [Overview](#overview)
 - [Code layout](#code-layout)
+- [Models and the test harness](#models-and-the-test-harness)
 - [Simulation start](#simulation-start)
 - [Outbound: model to DDS](#outbound-model-to-dds)
 - [Inbound: DDS to model](#inbound-dds-to-model)
@@ -70,8 +71,60 @@ classes that touch CST's fUML runtime types, which moved package between
 | `DdsInboundInjector` | Subscribes in-scope Blocks and injects queued samples into the simulation. |
 | `FumlValueBridge` | The only place that touches CST's internal fUML value types (see [decisions](#design-decisions)). |
 
-Model-side glue lives in `groovy/` and is pasted into the model: see the
-README's [model setup](../README.md#model-setup).
+The model side of the plugin — two Opaque Behaviors in the test harness —
+is kept as source in `groovy/`; see the next section.
+
+---
+
+## Models and the test harness
+
+The shipped models (`DDS_Models/`) are layered, each using the one below:
+
+| Layer | Model | Role |
+|---|---|---|
+| Language | `DDS_Profile` | Stereotypes, plus the reusable test harness |
+| Interface | `DDS_Message_Library` | A system's topics, types and QoS: its ICD, shared by every service on that bus |
+| Service | `SAGE` | One service's executable specification, built against that interface |
+
+**The harness.** `DDS_Simulation_Environment` (in `DDS_Profile`) owns an
+untyped `SYSTEM_UNDER_TEST` part, two untyped ports (`dds-bus-listener`,
+`dds-bus-sender`) and a state machine:
+
+```
+CONFIGURE DDS OUTGOING      entry: register_dds_engine_listener
+        │                   (config generation, scope, listener, subscriptions)
+        ▼
+┌─ concurrent ───────────────────────────────────────────────────┐
+│ Test                     do: runTest()                          │
+│ CONFIGURE DDS INCOMING   entry: poll_dds_subscription_inject,   │
+│                          re-entered every 5 s                   │
+└────────────────────────────────────────────────────────────────┘
+```
+
+A test is a Block that specializes the harness, redefines
+`SYSTEM_UNDER_TEST` with the service and connects the inherited ports to it.
+Nothing in the harness names the service, so it is reused unchanged.
+
+**Why `runTest` is an operation.** A specialized Block's own classifier
+behavior *replaces* the inherited one (fUML starts the classifier behavior of
+the object's own type only), so giving a Test Block its own state machine
+would stop the harness. Instead, the harness calls the abstract operation
+`runTest`, and each Test Block provides the method — the harness decides when
+the test runs, the Test Block decides what it does.
+
+**CST behaviors the harness depends on** (observed on CST 2024x):
+
+- An entry action runs to completion before the state machine processes the
+  next event, in every region. A test that waits for responses must therefore
+  be a `do` activity, or it blocks DDS polling in the other region.
+- A transition without a trigger leaving a state that has a `do` activity
+  fires as soon as the state is entered, aborting the `do` activity. A
+  transition out of the test state needs a trigger (e.g. a signal the test
+  sends itself when it has finished).
+- The scope is taken from the running object (`ALH.getContext()`), not from
+  `SimulationSession.getElement()`: inside the inherited state machine, the
+  executing behavior belongs to the harness, while the running object is the
+  Test Block.
 
 ---
 
@@ -143,7 +196,7 @@ cycle, so a burst is delayed, not dropped.
 
 ## Required model shape
 
-**`DDS_Profile`** (custom; must be present in the project):
+**`DDS_Profile`** (shipped as `DDS_Models/DDS_Profile.mdzip`):
 
 | Stereotype | Extends | Tags |
 |---|---|---|
@@ -167,7 +220,7 @@ Rules:
 - A Block **publishes** a topic when one of its ports is typed by an
   InterfaceBlock with an `out` FlowProperty typed by the topic Signal, and
   **subscribes** with an `in` one. Each such Block becomes a participant
-  named after it.
+  named after it; a Block that specializes it is treated as that Block.
 - Inbound delivery follows the IBD connector from the subscriber's port (as a
   part of the harness) to a harness port, which may be untyped.
 
@@ -190,6 +243,11 @@ Rules:
   sample and back-to-back samples were lost.
 - **Participants are named after their Block**, not from the shared QoS
   profile, so they stay distinguishable in RTI tools.
+- **Topic, field and type names are an interface contract.** RTI matches
+  differently named types by structure only when type information is
+  exchanged during discovery; when it isn't, the type names must match
+  (RTI logs `type names for topic 'X' do not match`). Renaming a payload
+  Block therefore changes the interface for every other application.
 - **One reader, queue and delivery path per subscribing Block**, so two
   modeled Blocks receiving the same topic each get exactly one copy — the
   same behavior as two separate DDS applications.
@@ -219,7 +277,7 @@ Rules:
 | Types | No variable-length sequences (`0..*` fields serialize as scalars), no multi-dimensional arrays, small primitive mapping. |
 | QoS | Only history depth is modeled. Import reads the first `<qos_profile>` in a file and doesn't update an existing element. |
 | Inbound arrays | Injecting array and nested-Block fields into the simulation has not been exercised live (the demo's inbound topic is flat). |
-| `Set_Object_Value` | Whether fields set through the model's `Set_Object_Value` Groovy library read back with real values at publish time is still to be verified. |
-| Profile | `DDS_Profile` is not shipped in this repository yet. |
+| Test sends | A test that sends a `«DDS_Topic»` Signal no Block publishes (e.g. an input for the system under test) also makes the plugin try to publish it, which fails with a logged error. Harmless, but noisy. |
+| Tests | No automated tests; verified by live runs on CAMEO 2024x and 2026x with RTI 7.5. |
 | Platform | Build and install scripts are Windows batch files. The Java code itself is OS-neutral. |
 | CST API | Depends on CST internal fUML types (isolated in `FumlValueBridge`); a CST upgrade can break it, as 2024x → 2026x did. |
