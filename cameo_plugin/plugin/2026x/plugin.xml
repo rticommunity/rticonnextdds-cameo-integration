@@ -1,0 +1,10 @@
+<plugin id="com.rti.connext.cameo" name="RTI Connext DDS" version="1.0.0" provider-name="Real-Time Innovations" class="com.rti.connext.cameo.RTIConnextPlugin">
+    <requires>
+        <api version="1.0"/>
+        <required-plugin id="SimulationToolkit" name="Cameo Simulation Toolkit" version="2026x Refresh1" internalVersion="202600000"/>
+    </requires>
+    <runtime>
+        <library name="lib/RTIConnextPlugin.jar"/>
+        <library name="lib/nddsjava.jar"/>
+    </runtime>
+</plugin>

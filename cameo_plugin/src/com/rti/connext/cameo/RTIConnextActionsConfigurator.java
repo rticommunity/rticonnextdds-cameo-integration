@@ -11,14 +11,15 @@
  */
 
 /*
- * RTIConnextActionsConfigurator.java — adds the "RTI Connext DDS" sub-menu
+ * RTIConnextActionsConfigurator — adds the "RTI Connext DDS" sub-menu
  * to the CAMEO Tools menu.
  *
  * Menu structure:
  *   Tools
  *     └─ RTI Connext DDS
- *           ├─ Start Shape Publisher   (toggles to "Stop Shape Publisher")
- *           └─ Start Shape Subscriber  (toggles to "Stop Shape Subscriber")
+ *           ├─ Scan Model for DDS Topics
+ *           ├─ Generate DDS XML
+ *           └─ Import QoS Profile
  */
 package com.rti.connext.cameo;
 
@@ -26,14 +27,19 @@ import com.nomagic.actions.AMConfigurator;
 import com.nomagic.actions.ActionsCategory;
 import com.nomagic.actions.ActionsManager;
 
+import com.rti.connext.cameo.core.ScanModelForTopicsAction;
+import com.rti.connext.cameo.dds.GenerateDdsXmlAction;
+import com.rti.connext.cameo.dds.ImportQosProfileAction;
+
 public class RTIConnextActionsConfigurator implements AMConfigurator {
 
     static final String TOOLS_MENU_ID = "TOOLS";
     static final String RTI_MENU_ID   = "RTI_CONNEXT_DDS_MENU";
     static final String RTI_MENU_NAME = "RTI Connext DDS";
 
-    private final ShapeTypePublisherAction  publisherAction  = new ShapeTypePublisherAction();
-    private final ShapeTypeSubscriberAction subscriberAction = new ShapeTypeSubscriberAction();
+    private final ScanModelForTopicsAction scanModelAction = new ScanModelForTopicsAction();
+    private final GenerateDdsXmlAction generateDdsXmlAction = new GenerateDdsXmlAction();
+    private final ImportQosProfileAction importQosProfileAction = new ImportQosProfileAction();
 
     @Override
     public void configure(ActionsManager manager) {
@@ -51,8 +57,9 @@ public class RTIConnextActionsConfigurator implements AMConfigurator {
 
         ActionsCategory rtiMenu = new ActionsCategory(RTI_MENU_ID, RTI_MENU_NAME);
         rtiMenu.setNested(true);
-        rtiMenu.addAction(publisherAction);
-        rtiMenu.addAction(subscriberAction);
+        rtiMenu.addAction(scanModelAction);
+        rtiMenu.addAction(generateDdsXmlAction);
+        rtiMenu.addAction(importQosProfileAction);
 
         toolsMenu.addAction(rtiMenu);
     }
