@@ -47,8 +47,12 @@ for %%a in (%*) do (
 )
 if /i "%CAMEO_VERSION%"=="2024x" (
     set "SRC_VERSION_DIR=src24x"
+    rem CAMEO 2024x runs on Java 17.
+    set "JAVA_RELEASE=17"
 ) else if /i "%CAMEO_VERSION%"=="2026x" (
     set "SRC_VERSION_DIR=src26x"
+    rem CAMEO 2026x runs on Java 21.
+    set "JAVA_RELEASE=21"
 ) else (
     echo ERROR: unknown or missing CAMEO version "%CAMEO_VERSION%".
     echo        Usage: build.bat 2024x^|2026x [debug]
@@ -241,7 +245,10 @@ echo   Sources        : src\ + %SRC_VERSION_DIR%\
 echo   Output dir     : %OUT%\classes\
 echo.
 
-"%JAVAC%" -encoding UTF-8 -d %OUT%\classes -classpath "%CLASSPATH%" ^
+:: --release makes the classes loadable by the target CAMEO's Java runtime
+:: whatever JDK compiles them (a JDK 21 compiling for 2024x would otherwise
+:: produce classes CAMEO 2024x refuses to load).
+"%JAVAC%" --release %JAVA_RELEASE% -encoding UTF-8 -d %OUT%\classes -classpath "%CLASSPATH%" ^
     src\com\rti\connext\cameo\RTIConnextPlugin.java ^
     src\com\rti\connext\cameo\RTIConnextActionsConfigurator.java ^
     src\com\rti\connext\cameo\core\TopicModel.java ^

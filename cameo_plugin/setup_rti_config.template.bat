@@ -69,11 +69,11 @@ set RTI_LICENSE_FILE=%USERPROFILE%\Documents\rti_workspace\7.5.0\rti_license.dat
 if /i "%CAMEO_VERSION%"=="2024x" (
     set "CAMEO_HOME=C:\Program Files\Magic Systems of Systems Architect"
     rem 2024x's bundled jre\ is a JDK 17 and includes javac.
-    if not defined RTIJDKHOME set "RTIJDKHOME=C:\Program Files\Magic Systems of Systems Architect\jre"
+    set "RTIJDKHOME=C:\Program Files\Magic Systems of Systems Architect\jre"
 ) else (
     set "CAMEO_HOME=C:\Program Files\Magic Cyber Systems Engineer"
     rem 2026x needs a separate JDK 21+ (see the NOTE above).
-    if not defined RTIJDKHOME set "RTIJDKHOME=C:\Program Files\Semeru\jdk-21.0.7.6-openj9"
+    set "RTIJDKHOME=C:\Program Files\Semeru\jdk-21.0.7.6-openj9"
 )
 
 :: --- PATH additions (native libs + RTI bin tools) ---
