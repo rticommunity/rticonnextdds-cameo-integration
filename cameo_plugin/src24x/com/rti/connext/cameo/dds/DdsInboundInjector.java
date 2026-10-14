@@ -95,17 +95,25 @@ public final class DdsInboundInjector {
     }
 
     /**
-     * Restricts inbound DDS to the Blocks in the simulation started on
-     * {@code simulatedElement} (SimulationSession.getElement() — a Block, a
-     * «SimulationConfig», ...). Call once at simulation bootstrap, before
-     * resetForNewRun()/subscribeAll(), from RegisterDdsEngineListener.groovy.
+     * Restricts inbound DDS to the Blocks in the running simulation. Call once
+     * at simulation bootstrap, before resetForNewRun()/subscribeAll(), from
+     * RegisterDdsEngineListener.groovy, passing ALH.getContext(): the running
+     * object, whose Block type is the root of the simulation. That has to be
+     * the running object, not the behavior being executed — a state machine
+     * inherited from a harness Block is owned by the harness, while the object
+     * running it is the specialized Test Block.
+     *
+     * Also accepts a model element (SimulationSession.getElement(): a Block,
+     * a «SimulationConfig», ...), as older copies of the script pass.
      */
-    public static void setSimulationScope(Element simulatedElement) {
-        Class root = SimulationScope.resolveRootBlock(simulatedElement);
+    public static void setSimulationScope(Object simulated) {
+        Class root = (simulated instanceof Element)
+                ? SimulationScope.resolveRootBlock((Element) simulated)
+                : FumlValueBridge.getBlockType(simulated);
         if (root == null) {
             simulationScope = null;
             log("[DDS Inject] WARNING: could not find the Block being simulated (from '"
-                    + simulatedElement + "') -- subscribing for every DDS Block in the project.");
+                    + simulated + "') -- subscribing for every DDS Block in the project.");
             return;
         }
         Set<String> scope = SimulationScope.blockNamesIn(root);

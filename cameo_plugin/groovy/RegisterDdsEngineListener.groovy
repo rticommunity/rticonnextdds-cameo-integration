@@ -53,7 +53,7 @@ try {
     // resetForNewRun() FIRST -- discards any backlog left over from before
     // this run started (DDS reception has no simulation-run scoping of its
     // own). Must only happen here, once, not in the repeating poll script.
-    com.rti.connext.cameo.dds.DdsInboundInjector.setSimulationScope(_session_.getElement())
+    com.rti.connext.cameo.dds.DdsInboundInjector.setSimulationScope(ALH.getContext())
     com.rti.connext.cameo.dds.DdsInboundInjector.resetForNewRun()
     com.rti.connext.cameo.dds.DdsInboundInjector.subscribeAll()
     guiLog.log("[DDS Listener] Inbound subscriptions started for every «DDS_Topic» the model wires up (receive-and-queue here; PollDdsSubscriptionAndInject.groovy does the actual injection).")

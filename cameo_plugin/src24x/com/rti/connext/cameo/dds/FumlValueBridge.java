@@ -50,8 +50,12 @@ package com.rti.connext.cameo.dds;
 
 import com.nomagic.magicdraw.simulation.execution.session.SimulationSession;
 import com.nomagic.magicdraw.simulation.utils.ALH;
+import com.nomagic.uml2.ext.jmi.helpers.StereotypesHelper;
+import com.nomagic.uml2.ext.magicdraw.classes.mdkernel.Class;
+import com.nomagic.uml2.ext.magicdraw.classes.mdkernel.Classifier;
 import com.nomagic.uml2.ext.magicdraw.commonbehaviors.mdcommunications.Signal;
 
+import fUML.Semantics.Classes.Kernel.Object_;
 import fUML.Semantics.Classes.Kernel.StructuredValue;
 import fUML.Semantics.CommonBehaviors.Communications.SignalInstance;
 
@@ -72,6 +76,24 @@ final class FumlValueBridge {
             return null;
         }
         return ((SignalInstance) signalInstanceObj).type;
+    }
+
+    /**
+     * Returns the «Block» a running simulation object (e.g. ALH.getContext())
+     * is an instance of, or null if {@code obj} isn't a simulation object or
+     * has no Block type.
+     */
+    @SuppressWarnings("deprecation")
+    static Class getBlockType(Object obj) {
+        if (!(obj instanceof Object_)) {
+            return null;
+        }
+        for (Classifier type : ((Object_) obj).getTypes()) {
+            if (type instanceof Class && StereotypesHelper.hasStereotype(type, "Block")) {
+                return (Class) type;
+            }
+        }
+        return null;
     }
 
     /**

@@ -86,10 +86,11 @@ README's [model setup](../README.md#model-setup).
    when the first participant of the run is created, so model changes apply
    without restarting CAMEO.
 2. **Registers `DdsEngineListener`** on the simulation session.
-3. **`DdsInboundInjector.setSimulationScope(_session_.getElement())`** —
-   resolves the simulated Block (directly, through a «SimulationConfig»'s
-   `executionTarget`, or through an owning Block) and records it plus every
-   Block typing one of its part properties, recursively.
+3. **`DdsInboundInjector.setSimulationScope(ALH.getContext())`** — takes the
+   Block type of the **running object** (e.g. a Test Block that specializes a
+   harness and inherits its state machine; the behavior being executed would
+   point at the harness instead) and records it plus, recursively, every
+   Block typing one of its part properties and every Block it specializes.
 4. **Clears stale inbound queues and subscribes** each in-scope subscribing
    Block.
 
