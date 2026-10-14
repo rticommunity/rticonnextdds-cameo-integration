@@ -5,7 +5,8 @@
  *
  * "Part of the simulation" = the simulated Block plus, recursively, the type
  * of every part property (composite aggregation, owned or inherited) of a
- * Block in scope — the composition tree CST instantiates.
+ * Block in scope — the composition tree CST instantiates — plus every Block
+ * that a Block in scope specializes.
  *
  * v1 limitations, both deliberate:
  *   - Multiplicity is ignored. CST creates parts with lower bound >= 1
@@ -87,6 +88,16 @@ public final class SimulationScope {
     private static void collect(Class block, Set<String> names) {
         if (!names.add(block.getName())) {
             return; // already visited — also stops a Block that (indirectly) contains itself
+        }
+        // An instance of a specialized Block is also an instance of every
+        // Block it specializes. ModelTopicScanner records pub/sub under the
+        // Block that DECLARES the port (e.g. a "Definition" Block), while the
+        // part may be typed by a specialization (e.g. "..._Implementation"),
+        // so the generals have to be in scope too.
+        for (Classifier general : block.getGeneral()) {
+            if (isBlock(general)) {
+                collect((Class) general, names);
+            }
         }
         for (Property property : attributesIncludingInherited(block)) {
             if (property.getAggregation() == AggregationKindEnum.COMPOSITE && isBlock(property.getType())) {
