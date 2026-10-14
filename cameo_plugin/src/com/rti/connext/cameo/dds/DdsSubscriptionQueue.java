@@ -1,18 +1,23 @@
 /*
- * DdsSubscriptionQueue.java — thread hand-off point between DDSTopicSubscriber
- * (STEP 2 of the inbound pipeline) and the Groovy polling script (STEP 3).
+ * (c) Copyright, Real-Time Innovations, 2026.  All rights reserved.
+ * RTI grants Licensee a license to use, modify, compile, and create derivative
+ * works of the software solely for use with RTI Connext DDS. Licensee may
+ * redistribute copies of the software provided that all such copies are subject
+ * to this license. The software is provided "as is", with no warranty of any
+ * type, including any warranty for fitness for any purpose. RTI is under no
+ * obligation to maintain or support the software. RTI shall not be liable for
+ * any incidental or consequential damages arising out of the use or inability
+ * to use the software.
+ */
+
+/*
+ * DdsSubscriptionQueue — hands received samples (as JSON) from RTI's callback
+ * thread, where DDSTopicSubscriber pushes them, to the simulation's thread,
+ * where DdsInboundInjector polls them.
  *
- * push() runs on RTI's own native callback thread (DataReaderListener.
- * on_data_available fires there, not on CAMEO's UI/simulation thread).
- * pollNext() runs on the simulation's own execution thread, inside a Groovy
- * Opaque Behavior polling on a Time Event. Deliberately no internal fUML
- * types anywhere in this file — mirrors DDSTopicPublisher/DdsXmlGenerator's
- * discipline of keeping the DDS-facing plumbing plain-typed.
- *
- * One queue per (subscriber Block, topic) — see key(). Each modeled Block
- * that subscribes to a topic has its own DataReader feeding its own queue,
- * so two Blocks receiving the same topic each get exactly one copy of every
- * sample, just as two separate DDS applications would.
+ * One queue per (subscribing Block, topic) — see key() — so two Blocks
+ * receiving the same topic each get exactly one copy of every sample, as two
+ * separate DDS applications would.
  */
 package com.rti.connext.cameo.dds;
 
@@ -22,8 +27,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 public final class DdsSubscriptionQueue {
 
-    /** One pending inbound sample, already converted to a JSON string by
-     *  DDSTopicSubscriber — this class never touches DynamicData/DDS types. */
+    /** One received sample, as JSON. */
     public static final class PendingMessage {
         public final String queueKey;
         public final String jsonPayload;
@@ -36,8 +40,7 @@ public final class DdsSubscriptionQueue {
         }
     }
 
-    // One queue per key(), created lazily — keeps pollNext() from having to
-    // scan/filter a single shared queue on every poll.
+    // One queue per key(), created on first use.
     private static final ConcurrentHashMap<String, Queue<PendingMessage>> QUEUES =
             new ConcurrentHashMap<>();
 
@@ -56,22 +59,16 @@ public final class DdsSubscriptionQueue {
                 .add(new PendingMessage(queueKey, jsonPayload, System.currentTimeMillis()));
     }
 
-    /** Called (via DdsInboundInjector) from the Groovy polling script.
-     *  Returns null (cheap, no allocation) if nothing is pending under this
-     *  key; otherwise removes and returns the oldest pending message for it. */
+    /** Removes and returns the oldest sample under {@code queueKey}, or null
+     *  if there is none. */
     public static PendingMessage pollNext(String queueKey) {
         Queue<PendingMessage> queue = QUEUES.get(queueKey);
         return queue == null ? null : queue.poll();
     }
 
-    /** Discards any backlog queued under this key. This queue is a static,
-     *  process-lifetime map with no simulation-run scoping of its own —
-     *  push() keeps happening on RTI's callback thread any time a live
-     *  reader exists, whether or not a simulation is currently running, and
-     *  nothing else in this class ever removes a message except pollNext().
-     *  Call this once at simulation bootstrap (see
-     *  RegisterDdsEngineListener.groovy) so a fresh run doesn't immediately
-     *  inject leftover samples queued before it started. */
+    /** Discards everything queued under {@code queueKey}. The queues live as
+     *  long as CAMEO and keep filling whenever a reader exists, so each run
+     *  clears them once at start, before injecting anything. */
     public static void clear(String queueKey) {
         Queue<PendingMessage> queue = QUEUES.get(queueKey);
         if (queue != null) {

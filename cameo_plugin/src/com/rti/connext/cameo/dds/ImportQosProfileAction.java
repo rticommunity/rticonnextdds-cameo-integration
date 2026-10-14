@@ -1,49 +1,29 @@
 /*
- * ImportQosProfileAction.java — Tools-menu action that imports an RTI
- * Connext DDS QoS profile XML file into the model as a «DDS_QosProfile»
- * Class inside a «DDS_QosLibrary» package.
+ * (c) Copyright, Real-Time Innovations, 2026.  All rights reserved.
+ * RTI grants Licensee a license to use, modify, compile, and create derivative
+ * works of the software solely for use with RTI Connext DDS. Licensee may
+ * redistribute copies of the software provided that all such copies are subject
+ * to this license. The software is provided "as is", with no warranty of any
+ * type, including any warranty for fitness for any purpose. RTI is under no
+ * obligation to maintain or support the software. RTI shall not be liable for
+ * any incidental or consequential damages arising out of the use or inability
+ * to use the software.
+ */
+
+/*
+ * ImportQosProfileAction — Tools-menu action that imports an RTI QoS profile
+ * XML file as a «DDS_QosProfile» Class inside a «DDS_QosLibrary» package
+ * (existing, or created on the way). The plugin's only action that changes
+ * the model.
  *
- * This is the plugin's FIRST WRITE operation against the model — every
- * other action so far (ScanModelForTopicsAction, GenerateDdsXmlAction) only
- * reads. All model mutation here happens inside a SessionManager session,
- * per NoMagic's OpenAPI contract — see createOrGetQosLibrary()/
- * createQosProfileElement() below.
+ * All changes happen in one SessionManager session:
+ *   - elements are attached with ModelElementsManager.addElement(), the
+ *     session-aware API, rather than Element.setOwner();
+ *   - on any failure the session is cancelled (rolled back), never closed:
+ *     closing would commit a half-created package or class to the model.
  *
- * ============================== CONFIDENCE NOTE ==============================
- * The write-path API calls below (SessionManager.createSession/closeSession/
- * cancelSession/isSessionCreated(Project,...), Project.getElementsFactory(),
- * ElementsFactory.createPackageInstance()/createClassInstance(),
- * ModelElementsManager.getInstance().addElement(Element,Element),
- * StereotypesHelper.addStereotype(Element,Stereotype),
- * StereotypesHelper.setStereotypePropertyValue(Element,Stereotype,String,Object),
- * NamedElement.setName(String)) were individually confirmed against the
- * local CAMEO 2024.3 javadoc before writing this file — not guessed.
- *
- * TWO DELIBERATE DEVIATIONS from how this was originally specified, both
- * because the javadoc surfaced something the spec didn't account for:
- *
- * 1. ModelElementsManager.addElement(element, parent) is used to attach a
- *    newly created element to its owner, NOT a raw Element.setOwner() call.
- *    Both exist; addElement() is the session-aware, purpose-built API for
- *    exactly this (its own javadoc cross-references SessionManager) and
- *    throws proper exceptions (ReadOnlyElementException, etc.) — the safer
- *    choice for a model-mutating action.
- *
- * 2. On any failure INSIDE a session this class opened, it calls
- *    SessionManager.cancelSession(project) (rolls back everything done in
- *    that session), not closeSession(project) — the javadoc for
- *    closeSession() says explicitly "All changes made ... will be recorded
- *    in the command history", i.e. COMMITTED, while cancelSession() says
- *    "will be rolled back". Always closing on error would commit a
- *    half-created Package/Class into the user's real model on any failure
- *    partway through — cancelSession() is what actually undoes it.
- *
- * The "Use Existing Package" picker uses ElementPickerUtil (CAMEO's native
- * ElementSelectionDlg) instead of a plain JOptionPane dropdown — see that
- * file for how it's restricted to an exact candidate list. The "Create New
- * Package" name-input dialog is unrelated (plain text input, not an
- * element-selection concern) and is still a plain JOptionPane.
- * ===============================================================================
+ * Only history depth is used by DdsXmlGenerator; participant_name is imported
+ * but no longer used, since participants are named after their Blocks.
  */
 package com.rti.connext.cameo.dds;
 
@@ -154,7 +134,7 @@ public class ImportQosProfileAction extends MDAction {
         return createQosLibraryPackage(project);
     }
 
-    /** Native ElementSelectionDlg picker (see ElementPickerUtil) instead of a plain JOptionPane dropdown. */
+    /** CAMEO's element-selection dialog (see ElementPickerUtil). */
     private Package choosePackage(Project project, List<Package> packages) {
         return ElementPickerUtil.pickOne(project.getPrimaryModel(), packages,
                 "Choose a «DDS_QosLibrary» package:", false, null);
@@ -214,7 +194,8 @@ public class ImportQosProfileAction extends MDAction {
         return result == JFileChooser.APPROVE_OPTION ? chooser.getSelectedFile() : null;
     }
 
-    /** Plain holder for what was pulled out of the <qos_profile> element — any field may be null/unset except profileName (backfilled from the filename if missing). */
+    /** What was read from the <qos_profile> element; any field may be null
+     *  except profileName (taken from the file name if missing). */
     private static final class ParsedQosProfile {
         String profileName;
         Boolean isDefault;
@@ -260,7 +241,8 @@ public class ImportQosProfileAction extends MDAction {
         return parsed;
     }
 
-    /** Walks a fixed nested-tag path (e.g. "history", "depth") via getElementsByTagName() at each level, returning trimmed text content, or null the moment any level is missing. */
+    /** Trimmed text at a nested tag path (e.g. "history", "depth"), or null
+     *  if any level is missing. */
     private static String firstNestedText(org.w3c.dom.Element root, String... tagPath) {
         org.w3c.dom.Element current = root;
         for (String tag : tagPath) {

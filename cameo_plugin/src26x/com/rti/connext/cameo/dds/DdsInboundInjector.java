@@ -1,59 +1,41 @@
 /*
- * DdsInboundInjector.java — CAMEO 2026x variant. See
- * src24x/.../DdsInboundInjector.java for the 2024x original this was ported
- * from. Picked up by build.bat 2026x; build.bat 2024x picks up the src24x/ copy
- * instead.
+ * (c) Copyright, Real-Time Innovations, 2026.  All rights reserved.
+ * RTI grants Licensee a license to use, modify, compile, and create derivative
+ * works of the software solely for use with RTI Connext DDS. Licensee may
+ * redistribute copies of the software provided that all such copies are subject
+ * to this license. The software is provided "as is", with no warranty of any
+ * type, including any warranty for fitness for any purpose. RTI is under no
+ * obligation to maintain or support the software. RTI shall not be liable for
+ * any incidental or consequential damages arising out of the use or inability
+ * to use the software.
+ */
+
+/*
+ * DdsInboundInjector — injects DDS samples received for the running
+ * simulation into it as Signals (CAMEO 2026x; the src24x copy differs only in
+ * the fUML imports, which moved package in CST 2026x).
  *
- * ONLY DIFFERENCE FROM THE 2024x VERSION: Object_/SignalInstance moved out of
- * the shared `fUML.Semantics.*` namespace into NoMagic's own
- * `com.nomagic.magicdraw.simulation.fuml.*` namespace between CST 2024x and
- * CST 2026x Refresh1 — confirmed via `javap -p` against both installs'
- * simulation.toolkit.core jars. No other logic changed.
+ * Driven entirely by ModelTopicScanner: every «DDS_Topic» Signal that a Block
+ * in the simulation receives (an "in" FlowProperty on one of its ports) is
+ * subscribed and injected; no topic, participant, reader, type or port name
+ * is hardcoded here or in the Groovy scripts that call this class.
  *
- * fully generic inbound DDS -> live-signal injection, driven entirely by
- * ModelTopicScanner's structural scan. No topic/participant/reader/payload/
- * port names are hardcoded anywhere in this class or in the two Groovy
- * scripts that call it (RegisterDdsEngineListener.groovy /
- * PollDdsSubscriptionAndInject.groovy). Any «DDS_Topic»-stereotyped Signal
- * wired as inbound (Port -> «InterfaceBlock» -> «FlowProperty» direction=in,
- * on any Block) is subscribed to and injected automatically.
+ * Delivery path. CST's ALH has no public way to find "the live instance of
+ * Block X" from outside it, and ALH.getContext() is the object running the
+ * calling script: the harness Block the poll script runs on. So a sample is
+ * delivered the way a real signal would be: sent out of the harness port that
+ * the model connects (IBD connector) to the subscriber's inbound port. The
+ * harness port may be untyped and named anything.
  *
- * ============================== IMPORTANT ==============================
- * WHICH PORT TO SEND THROUGH: ALH has no sanctioned way to look up "the live
- * instance of Block X" from outside that instance's own running execution
- * (confirmed via a full javap -p dump of ALH's public API — no
- * getObjectsOfType()/findByClassifier() or similar exists). ALH.getContext()
- * only ever resolves to "whichever object is currently running this code"
- * (ContextHelper.findNearestObject()) — in practice the DDS bus / test
- * environment Block the poll script is placed on, not the subscriber.
+ * One path per subscribing Block. Each subscribing Block has its own
+ * DataReader (in its own participant) feeding its own queue
+ * (DdsSubscriptionQueue.key(block, topic)), injected only through the ports
+ * connected to that Block — so two modeled Blocks receiving the same topic
+ * each get exactly one copy, like two separate DDS applications would.
  *
- * So injection goes the way a real signal would: out of that environment
- * Block's own Port and along the modeled IBD connector into the subscriber.
- * The Port names come from ModelTopicScanner (Topic.injectionPorts — the far
- * end of each connector wired into a subscriber's inbound Port from
- * outside), so nothing is hardcoded and the environment's Ports can be named
- * anything and left untyped: only the subscriber's side is part of the
- * reviewed spec.
- *
- * ONE PATH PER SUBSCRIBING BLOCK: each Block that subscribes to a topic has
- * its own DataReader (in its own participant) feeding its own queue
- * (DdsSubscriptionQueue.key(block, topic)), and its samples are sent only
- * through the Port(s) connected to THAT Block. Two modeled Blocks receiving
- * the same topic therefore each get exactly one copy of every sample, and
- * each shows up on the DDS bus as its own subscriber — the same behavior as
- * two separate DDS applications (e.g. an external display) subscribing. The poll script still has to be physically placed on that
- * environment Block with a repeating trigger (no way around that, same
- * investigation).
- *
- * WHY the caller's own ALH instance, not `new ALH(session)` here: ALH's
- * getContext()/createObject() etc. only resolve correctly when ALH is the
- * instance CST auto-injects into a running Opaque Behavior — an externally
- * constructed ALH's getContext() returns null (same finding documented in
- * FumlValueBridge.java). Both public methods below take the caller's own
- * `ALH alh` parameter (Groovy's auto-injected `ALH` variable, a plain
- * instance of this same public class) rather than constructing one, so
- * every ALH call here runs with the correct, already-resolved context.
- * =========================================================================
+ * The caller passes its own ALH: only the instance CST injects into a running
+ * Opaque Behavior resolves getContext()/createObject() correctly; a
+ * separately constructed ALH returns null for getContext().
  */
 package com.rti.connext.cameo.dds;
 
@@ -81,11 +63,9 @@ import java.util.Set;
 
 public final class DdsInboundInjector {
 
-    // Cached for the life of the current simulation run — the model's
-    // DDS_Topic/Port wiring doesn't change mid-run, so re-scanning the
-    // whole model on every poll cycle would be wasteful. Cleared by
-    // shutdown(), same lifecycle as DDSTopicSubscriber/DDSTopicPublisher's
-    // own caches.
+    // Fallback scan, cached for the run (the model doesn't change mid-run).
+    // Normally DdsRuntimeConfig's scan is used instead; see
+    // getOrScanTopicModel().
     private static volatile TopicModel cachedModel;
 
     // Names of the Blocks in the running simulation (see SimulationScope),
@@ -141,12 +121,12 @@ public final class DdsInboundInjector {
     }
 
     /**
-     * Subscribes to every «DDS_Topic»-stereotyped Signal the model wires as
-     * inbound on a Block in the simulation scope. Idempotent per topic (delegates to
-     * DDSTopicSubscriber.subscribeOnce()) — safe, and expected, to call on
-     * every poll cycle for self-healing, the same reason the old
-     * per-topic-hardcoded version did. Does NOT touch any queued backlog —
-     * see resetForNewRun() for that.
+     * Subscribes every in-scope Block to each «DDS_Topic» it receives.
+     * Idempotent (DDSTopicSubscriber.subscribeOnce()), and called on every
+     * poll cycle on purpose: the registration script's own short-lived
+     * execution tears subscriptions down right after creating them, and the
+     * next cycle restores them. Doesn't touch queued samples; see
+     * resetForNewRun().
      */
     public static void subscribeAll() {
         TopicModel model = getOrScanTopicModel();
@@ -169,12 +149,10 @@ public final class DdsInboundInjector {
     }
 
     /**
-     * Discards any backlog queued for every inbound topic before this run
-     * starts polling (see DdsSubscriptionQueue.clear()'s doc comment for
-     * why that matters). Call exactly ONCE, from
-     * RegisterDdsEngineListener.groovy at simulation bootstrap — NOT from
-     * the repeating poll script, which would wipe out legitimately-queued-
-     * but-not-yet-drained messages every cycle.
+     * Discards samples queued before this run (see
+     * DdsSubscriptionQueue.clear()). Call once, from the registration script —
+     * not from the poll script, which would drop samples still waiting to be
+     * injected.
      */
     public static void resetForNewRun() {
         TopicModel model = getOrScanTopicModel();
@@ -189,10 +167,9 @@ public final class DdsInboundInjector {
     }
 
     /**
-     * Drains every subscribed topic's queue and injects each pending sample
-     * as a live signal targeting {@code target}. See this class's header
-     * comment for why {@code alh} must be the caller's own auto-injected
-     * instance, and which Port each topic is sent through.
+     * Drains every in-scope queue and injects each sample as a Signal sent
+     * from {@code target} (the harness object). See the class comment for why
+     * {@code alh} must be the caller's own instance.
      */
     public static void pollAndInjectAll(ALH alh, Object_ target) {
         if (target == null) {
@@ -371,9 +348,8 @@ public final class DdsInboundInjector {
         }
     }
 
-    /** Clears the cached scan so the next call re-scans the model. Called
-     *  alongside every other DDS shutdown hook (RTIConnextPlugin.close(),
-     *  DdsEngineListener's executionTerminated() overloads). */
+    /** Clears the cached scan. Called with the other DDS shutdown hooks
+     *  (RTIConnextPlugin.close(), DdsEngineListener.executionTerminated()). */
     public static void shutdown() {
         cachedModel = null;
         // simulationScope is deliberately kept: the registration script's own

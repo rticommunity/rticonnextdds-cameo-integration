@@ -1,11 +1,19 @@
 /*
- * TopicModel.java — plain data classes describing what ModelTopicScanner
- * finds in the SysML model: a Signal acting as a DDS Topic, its type
- * structure (recursively built from the typing Block's value/part
- * properties), and which Blocks publish/subscribe to it.
- *
- * These are pure data holders — no MagicDraw API dependency — so they're
- * easy to unit test and easy for DdsXmlGenerator to consume later.
+ * (c) Copyright, Real-Time Innovations, 2026.  All rights reserved.
+ * RTI grants Licensee a license to use, modify, compile, and create derivative
+ * works of the software solely for use with RTI Connext DDS. Licensee may
+ * redistribute copies of the software provided that all such copies are subject
+ * to this license. The software is provided "as is", with no warranty of any
+ * type, including any warranty for fitness for any purpose. RTI is under no
+ * obligation to maintain or support the software. RTI shall not be liable for
+ * any incidental or consequential damages arising out of the use or inability
+ * to use the software.
+ */
+
+/*
+ * TopicModel — what ModelTopicScanner finds in a model: topics, their struct
+ * and enum types, and which Blocks publish or subscribe to each. Plain data,
+ * no CAMEO dependency.
  */
 package com.rti.connext.cameo.core;
 
@@ -77,28 +85,19 @@ public final class TopicModel {
     }
 
     /** A Signal acting as a Topic: its name, its type (the Block typing its one
-     *  attribute), and which Blocks publish/subscribe to it (by name, plus the
-     *  Port used for publishing where known). */
+     *  "data" attribute), and which Blocks publish and subscribe to it. */
     public static final class Topic {
         public final String topicName;      // Signal name
         public final String typeName;       // name of the StructType (the Block typing the Signal's attribute)
         public final List<String> publisherBlockNames = new ArrayList<>();
         public final List<String> subscriberBlockNames = new ArrayList<>();
 
-        // Block name -> the actual inbound Port's own name on that Block.
-        // Same discovery pass as subscriberBlockNames (handleBlockPorts()),
-        // just also keeping what that method used to discard. Lets a fully
-        // generic inbound injector (DdsInboundInjector) resolve which Port
-        // to ALH.sendSignal() through for a given (Block, Topic) pairing
-        // without any per-topic hardcoding.
+        // Subscriber Block name -> its inbound port's name.
         public final Map<String, String> subscriberPorts = new LinkedHashMap<>();
 
-        // Subscriber Block name -> names of the Ports at the far end of the
-        // connectors wired INTO that Block's inbound Port from outside (e.g.
-        // the DDS bus / test environment Block's port, which may be untyped).
-        // DdsInboundInjector sends each Block's samples only through that
-        // Block's own entries, so an injected signal travels the modeled
-        // connector into exactly that subscriber — no port names hardcoded.
+        // Subscriber Block name -> the ports connected to its inbound port
+        // from outside (usually the harness's), which DdsInboundInjector
+        // sends that Block's samples through.
         public final Map<String, Set<String>> injectionPorts = new LinkedHashMap<>();
 
         public Topic(String topicName, String typeName) {
@@ -107,10 +106,8 @@ public final class TopicModel {
         }
     }
 
-    /** Full scan result: every struct type discovered (keyed by name, since
-     *  nested types are shared/de-duplicated across topics), every enum
-     *  discovered (same de-duplication, keyed by Enumeration name), and
-     *  every topic. */
+    /** Every struct type, enum and topic found, keyed by name (types are
+     *  shared between topics). */
     public final Map<String, StructType> types = new LinkedHashMap<>();
     public final Map<String, EnumType> enums = new LinkedHashMap<>();
     public final Map<String, Topic> topics = new LinkedHashMap<>();

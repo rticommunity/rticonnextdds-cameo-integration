@@ -11,7 +11,7 @@
  */
 
 /*
- * RTIConnextPlugin.java — CAMEO System Modeler 2024x plugin entry point.
+ * RTIConnextPlugin — the plugin's entry point (CAMEO 2024x and 2026x).
  *
  * Lifecycle:
  *   init()  — registers the RTI Connext menu under Tools, then attempts to

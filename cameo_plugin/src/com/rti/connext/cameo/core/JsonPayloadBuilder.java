@@ -1,12 +1,23 @@
 /*
- * JsonPayloadBuilder.java — builds the flat-or-nested JSON object handed to
- * RTI's DynamicData.from_string() on the outbound path. Values are added
- * already in JSON form (addRaw) or as strings (addString, quoted/escaped by
- * Gson), so nested objects and arrays are built by the caller and added raw.
+ * (c) Copyright, Real-Time Innovations, 2026.  All rights reserved.
+ * RTI grants Licensee a license to use, modify, compile, and create derivative
+ * works of the software solely for use with RTI Connext DDS. Licensee may
+ * redistribute copies of the software provided that all such copies are subject
+ * to this license. The software is provided "as is", with no warranty of any
+ * type, including any warranty for fitness for any purpose. RTI is under no
+ * obligation to maintain or support the software. RTI shall not be liable for
+ * any incidental or consequential damages arising out of the use or inability
+ * to use the software.
+ */
+
+/*
+ * JsonPayloadBuilder — builds the JSON object handed to RTI's
+ * DynamicData.from_string() when publishing. Values are added as JSON
+ * (addRaw) or as strings (addString, escaped by Gson); nested objects and
+ * arrays are built by the caller and added raw.
  *
- * Parsing (the inbound direction) is NOT done here: DdsInboundInjector uses
- * Gson's JsonParser, which CAMEO 2024x and 2026x both ship on their runtime
- * classpath (lib/gson-*.jar, listed in lib/classpath.jar's manifest).
+ * Parsing received samples is done in DdsInboundInjector with Gson, which
+ * CAMEO 2024x and 2026x both ship on their runtime classpath.
  */
 package com.rti.connext.cameo.core;
 

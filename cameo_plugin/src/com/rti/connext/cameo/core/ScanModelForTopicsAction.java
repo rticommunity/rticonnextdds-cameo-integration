@@ -1,20 +1,19 @@
 /*
- * ScanModelForTopicsAction.java — Tools-menu action that runs
- * ModelTopicScanner against the currently open project and logs every
- * discovered Topic and StructType to CAMEO's notification log.
- *
- * This is the fastest way to see the scanner's output against a real model
- * without yet building DdsXmlGenerator or wiring anything into simulation —
- * pure "does the scan find what I expect" feedback.
- *
- * CONFIDENCE NOTE: Application.getInstance().getProject() and
- * Project.getPrimaryModel() are very standard, widely-used MagicDraw OpenAPI
- * calls (Project itself is already used in a real, working NoMagic example
- * we saw earlier — ExampleAction.java calls Project.getProject(element)) —
- * high confidence, but getPrimaryModel() specifically wasn't individually
- * re-verified against your jars the way the model interfaces were. If build
- * fails on that one line, that's the line to check against your local
- * <CAMEO_HOME>\openapi\docs.
+ * (c) Copyright, Real-Time Innovations, 2026.  All rights reserved.
+ * RTI grants Licensee a license to use, modify, compile, and create derivative
+ * works of the software solely for use with RTI Connext DDS. Licensee may
+ * redistribute copies of the software provided that all such copies are subject
+ * to this license. The software is provided "as is", with no warranty of any
+ * type, including any warranty for fitness for any purpose. RTI is under no
+ * obligation to maintain or support the software. RTI shall not be liable for
+ * any incidental or consequential damages arising out of the use or inability
+ * to use the software.
+ */
+
+/*
+ * ScanModelForTopicsAction — Tools-menu action that scans the open project
+ * and logs every topic and type found: a quick way to check that a model is
+ * read the way you expect.
  */
 package com.rti.connext.cameo.core;
 

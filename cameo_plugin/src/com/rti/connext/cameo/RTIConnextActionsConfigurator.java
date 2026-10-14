@@ -11,7 +11,7 @@
  */
 
 /*
- * RTIConnextActionsConfigurator.java — adds the "RTI Connext DDS" sub-menu
+ * RTIConnextActionsConfigurator — adds the "RTI Connext DDS" sub-menu
  * to the CAMEO Tools menu.
  *
  * Menu structure:

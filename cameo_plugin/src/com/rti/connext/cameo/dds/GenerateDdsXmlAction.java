@@ -1,16 +1,20 @@
 /*
- * GenerateDdsXmlAction.java — Tools-menu action that finds the model's
- * «DDS_Domain» package(s), scans the chosen one for «DDS_Topic» Signals via
- * ModelTopicScanner, generates the RTI Connext DDS XML Application Creation
- * config via DdsXmlGenerator, and writes it to a file the user picks.
- *
- * Also offers an optional «DDS_QosProfile» to apply (see chooseQosProfile())
- * — imported separately via ImportQosProfileAction, which is this plugin's
- * only WRITE path; this action stays read-only, same as before.
- *
- * Both pickers below use ElementPickerUtil (CAMEO's native
- * ElementSelectionDlg) instead of a plain JOptionPane dropdown — see that
- * file for how it's restricted to an exact candidate list.
+ * (c) Copyright, Real-Time Innovations, 2026.  All rights reserved.
+ * RTI grants Licensee a license to use, modify, compile, and create derivative
+ * works of the software solely for use with RTI Connext DDS. Licensee may
+ * redistribute copies of the software provided that all such copies are subject
+ * to this license. The software is provided "as is", with no warranty of any
+ * type, including any warranty for fitness for any purpose. RTI is under no
+ * obligation to maintain or support the software. RTI shall not be liable for
+ * any incidental or consequential damages arising out of the use or inability
+ * to use the software.
+ */
+
+/*
+ * GenerateDdsXmlAction — Tools-menu action that exports the DDS XML
+ * configuration for a «DDS_Domain» to a file of your choice, optionally with
+ * a «DDS_QosProfile» (e.g. to hand the interface to another team). Not needed
+ * for simulation: DdsRuntimeConfig generates the same XML at every run.
  */
 package com.rti.connext.cameo.dds;
 
@@ -113,12 +117,8 @@ public class GenerateDdsXmlAction extends MDAction {
     }
 
     /**
-     * Picker shown only when at least one «DDS_QosProfile» exists anywhere
-     * in the project (zero found = silent, no dialog — must stay the
-     * default zero-friction path). Uses ElementPickerUtil's native "None"
-     * support (allowNone=true) rather than a synthetic list entry;
-     * pre-selects whichever profile has is_default=true if exactly one is
-     * found that way, otherwise nothing is pre-selected.
+     * Asks which «DDS_QosProfile» to apply (or none); only called when at
+     * least one exists. Pre-selects the profile marked is_default.
      */
     private ModelTopicScanner.QosProfileInfo chooseQosProfile(Element root, List<Class> qosProfiles) {
         Class defaultProfile = null;

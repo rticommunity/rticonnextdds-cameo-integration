@@ -1,60 +1,37 @@
 /*
- * DdsXmlGenerator.java — generates an RTI Connext DDS XML Application
- * Creation config (the format resources/ShapeType.xml is written in, and
- * that DDSRunner/DDSTopicPublisher consume at runtime) from a TopicModel
- * produced by ModelTopicScanner.scan().
+ * (c) Copyright, Real-Time Innovations, 2026.  All rights reserved.
+ * RTI grants Licensee a license to use, modify, compile, and create derivative
+ * works of the software solely for use with RTI Connext DDS. Licensee may
+ * redistribute copies of the software provided that all such copies are subject
+ * to this license. The software is provided "as is", with no warranty of any
+ * type, including any warranty for fitness for any purpose. RTI is under no
+ * obligation to maintain or support the software. RTI shall not be liable for
+ * any incidental or consequential damages arising out of the use or inability
+ * to use the software.
+ */
+
+/*
+ * DdsXmlGenerator — turns a TopicModel into an RTI Connext DDS XML
+ * Application Creation document (validated against RTI's
+ * rti_dds_profiles.xsd, 7.5.0).
  *
- * Structure emitted, in order:
- *   <types>                        — one <enum> per TopicModel.EnumType,
- *                                     emitted first (enums have no
- *                                     dependencies of their own), then one
- *                                     <struct> per TopicModel.StructType,
- *                                     ordered so nested struct types are
- *                                     defined before anything referencing them
- *   <qos_library><qos_profile>     — OMITTED entirely unless a QoS profile
- *                                     was chosen (see generate()'s qosProfile
- *                                     param); when present, one <qos_profile>
- *                                     matching the reference ShapeType.xml
- *                                     structure (domain_participant_qos/
- *                                     participant_name, datareader_qos/
- *                                     history/depth — each sub-block omitted
- *                                     when its source tag was unset)
- *   <domain_library><domain>       — one <register_type> per struct, one
- *                                     <topic> per TopicModel.Topic.
- *                                     register_type's name is the struct
- *                                     name with a "_Type" suffix (see
- *                                     registerTypeName()), NOT the bare
- *                                     struct name — register_type and topic
- *                                     objects share one naming namespace
- *                                     under <domain> in RTI's XML schema,
- *                                     and a model whose payload Block is
- *                                     named identically to its Signal (a
- *                                     natural, common modeling choice)
- *                                     would otherwise produce a
- *                                     register_type and a topic with the
- *                                     exact same name, which
- *                                     RTIXMLObject_addChild rejects as a
- *                                     duplicate — silently failing the
- *                                     ENTIRE profile document's parse, not
- *                                     just that one entry (confirmed live:
- *                                     "XML object with name
- *                                     '::DomainLibrary::Domain::X' already
- *                                     exists", every subsequent publish
- *                                     failing with RETCODE_ERROR because
- *                                     the whole XML never actually loaded)
- *   <domain_participant_library>   — one <domain_participant> per Block name
- *                                     that publishes or subscribes to any
- *                                     topic, with matching <data_writer>/
- *                                     <data_reader> entries (named
- *                                     "<topic>Writer"/"<topic>Reader" inside
- *                                     fixed "Publisher"/"Subscriber" blocks —
- *                                     the same convention DDSRunner and
- *                                     DDSTopicPublisher already assume)
+ * Emitted, in order:
+ *   <types>                       enums first, then structs ordered so every
+ *                                 nested struct is defined before its users
+ *   <qos_library>                 only when a «DDS_QosProfile» is given
+ *   <domain_library>              one <register_type> per struct and one
+ *                                 <topic> per topic. Registered types get a
+ *                                 "_Type" suffix: register_type and topic
+ *                                 share one namespace, and a payload Block
+ *                                 named like its Signal would otherwise make
+ *                                 RTI reject the whole document.
+ *   <domain_participant_library>  one participant per publishing or
+ *                                 subscribing Block, with "<Topic>Writer" /
+ *                                 "<Topic>Reader" entities in fixed
+ *                                 "Publisher" / "Subscriber" entities.
  *
- * Pure String in/out — no file I/O, no MagicDraw dependency — same
- * "plain data in, plain data out" shape as TopicModel itself, so this can be
- * unit-tested with a hand-built TopicModel. The caller decides whether to
- * write the result to disk or wire it into a Tools-menu action.
+ * Pure string in, string out (no file I/O, no CAMEO dependency), so it can be
+ * exercised with a hand-built TopicModel.
  */
 package com.rti.connext.cameo.dds;
 
@@ -72,11 +49,7 @@ public final class DdsXmlGenerator {
     private static final String DOMAIN_LIBRARY_NAME = "DomainLibrary";
     private static final String DOMAIN_NAME = "Domain";
     private static final String DOMAIN_PARTICIPANT_LIBRARY_NAME = "DomainParticipantLibrary";
-    // Fixed, like DOMAIN_LIBRARY_NAME/DOMAIN_NAME above — not derived from
-    // the model's «DDS_QosLibrary» package name, matching the existing
-    // convention that generated container names are constants, not
-    // model-name-driven (the domain package's own name is similarly ignored
-    // in favor of the fixed DOMAIN_NAME today).
+    // Container names are constants, not taken from model package names.
     private static final String QOS_LIBRARY_NAME = "QosLibrary";
 
     private DdsXmlGenerator() {
@@ -104,9 +77,7 @@ public final class DdsXmlGenerator {
     }
 
     // -------------------------------------------------------------------------
-    // <qos_library><qos_profile> — omitted entirely by generate() when
-    // qosProfile is null; see ImportQosProfileAction for how a
-    // «DDS_QosProfile» element gets created in the first place.
+    // <qos_library><qos_profile> — only when a QoS profile is given.
     // -------------------------------------------------------------------------
 
     private static void appendQosLibrary(StringBuilder xml, ModelTopicScanner.QosProfileInfo qosProfile) {
@@ -159,15 +130,9 @@ public final class DdsXmlGenerator {
     }
 
     /**
-     * Emitted first, ahead of any <struct> — enums have no dependencies of
-     * their own, so unlike structs they don't need topological ordering.
-     * Literal values are always emitted explicitly, sequentially from 0 in
-     * declaration order (ModelTopicScanner doesn't read explicit integer
-     * values off the model) — RTI's own schema allows omitting {@code value}
-     * entirely and defaults to the same sequential numbering (confirmed
-     * against the real, RTI-shipped example
-     * {@code Color.xml}: {@code <enumerator name="RED"/>} with no value),
-     * but emitting it explicitly here removes any ambiguity.
+     * Enums go before structs (they depend on nothing). Values are emitted
+     * explicitly, 0, 1, 2... in declaration order — the same numbering RTI
+     * would default to — so the generated XML is unambiguous.
      */
     private static void appendEnums(StringBuilder xml, Map<String, TopicModel.EnumType> enums) {
         for (TopicModel.EnumType enumType : enums.values()) {
@@ -183,23 +148,12 @@ public final class DdsXmlGenerator {
     }
 
     /**
-     * type= handling, verified against real RTI Connext example XML shipped
-     * under {@code <RTI install>\resource\app\...\test_types\} (Color.xml,
-     * EnumType.xml, arrays.xml) rather than assumed:
-     *   - a nested struct reference is a bare {@code type="<StructName>"} —
-     *     unchanged from before this change, already proven correct at
-     *     runtime (Health/SensorReport publish live in this project using
-     *     exactly this form).
-     *   - an ENUM reference is NOT a bare {@code type="<EnumName>"} — RTI's
-     *     own example XML uses {@code type="nonBasic"
-     *     nonBasicTypeName="<EnumName>"} instead (confirmed in Color.xml's
-     *     consuming struct, EnumType.xml). Using the unverified bare form
-     *     here would have been a guess; this is the confirmed one.
-     *   - arrayDimensions is a separate, independent attribute that coexists
-     *     with either form above (confirmed in arrays.xml: e.g.
-     *     {@code type="int16" arrayDimensions="10,20"}), and with
-     *     stringMaxLength/key (also confirmed in arrays.xml:
-     *     {@code stringMaxLength="233" type="string" arrayDimensions="6,8"}).
+     * Member syntax, as in RTI's own example types (Color.xml, EnumType.xml,
+     * arrays.xml):
+     *   - nested struct: {@code type="<StructName>"}
+     *   - enum: {@code type="nonBasic" nonBasicTypeName="<EnumName>"}
+     *   - {@code arrayDimensions}, {@code stringMaxLength} and {@code key}
+     *     combine with either form.
      */
     private static void appendMember(StringBuilder xml, TopicModel.Field field) {
         xml.append("        <member name=\"").append(escapeAttr(field.name)).append("\"");
@@ -254,25 +208,12 @@ public final class DdsXmlGenerator {
         xml.append("    <domain_participant_library name=\"")
            .append(DOMAIN_PARTICIPANT_LIBRARY_NAME).append("\">\n");
 
-        // Every entity below — participant, data_writer, data_reader —
-        // references the profile explicitly. CONFIRMED LIVE BUG, fixed here:
-        // is_default_qos="true" on the
-        // <qos_profile> emitted by appendQosLibrary() has NO effect on
-        // entities statically declared in a domain_participant_library --
-        // each data_writer/data_reader below must explicitly reference the
-        // profile via a nested <datawriter_qos base_name="..."/> /
-        // <datareader_qos base_name="..."/>, or it silently falls back to
-        // RTI's factory default QoS (HISTORY = KEEP_LAST depth=1)
-        // regardless of what the model's own «DDS_QosProfile» element
-        // specifies. Without this, none of the "Sensor Alignment and Gating
-        // Service"'s own historyDepth setting was ever actually applied to
-        // HealthWriter/GatedReportWriter/SensorReportReader -- confirmed by
-        // reproducing the exact same bug in this project's hand-authored
-        // test configs (see SensorReport.xml's own comment on this, in the
-        // SAGE demo repository linked from the README): with only
-        // is_default_qos="true" and no explicit reference, a keyless
-        // topic's second same-instance sample deterministically overwrote
-        // the first before any reader read it, every single time.
+        // Every entity — participant, writer, reader — references the
+        // profile explicitly: is_default_qos="true" has no effect on entities
+        // declared in a domain_participant_library (verified with RTI 7.5).
+        // Without the reference they fall back to RTI's default KEEP_LAST
+        // depth 1, and on a keyless topic a second sample written right
+        // after the first overwrites it before any reader takes it.
         String qosProfileRef = qosProfile != null
                 ? QOS_LIBRARY_NAME + "::" + qosProfile.profileName
                 : null;
@@ -356,14 +297,9 @@ public final class DdsXmlGenerator {
     // -------------------------------------------------------------------------
     // Struct dependency ordering
     //
-    // ModelTopicScanner.buildStructType() happens to insert nested types into
-    // TopicModel.types before the structs that reference them (it recurses
-    // into the nested Block first), so TopicModel.types' LinkedHashMap order
-    // already works for scanner-produced models. But this generator is
-    // explicitly meant to also work against a hand-built TopicModel (e.g. in
-    // a unit test), which isn't guaranteed to respect that insertion order —
-    // so ordering is computed explicitly here via a DFS-based topological
-    // sort instead of trusting the map's iteration order.
+    // The scanner already inserts nested types first, but a hand-built
+    // TopicModel may not, so struct order is computed here (depth-first
+    // topological sort) rather than taken from the map.
     // -------------------------------------------------------------------------
 
     private static List<TopicModel.StructType> topologicallySortStructs(TopicModel model) {

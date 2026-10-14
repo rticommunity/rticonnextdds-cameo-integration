@@ -1,46 +1,33 @@
 /*
- * ModelTopicScanner.java — walks a SysML model and discovers:
- *   - Blocks (Class stereotyped «Block»)
- *   - Signals used as DDS Topics — every Signal reachable from the scan root
- *     that carries the «DDS_Topic» stereotype is registered directly (not
- *     conditionally on being referenced by some Block's behavior); its one
- *     attribute, typed by a Block, is recursively expanded into a DDS struct
- *     type via that Block's value/part properties.
- *   - Which Blocks publish/subscribe to a topic — STRUCTURAL: each Block's
- *     Ports, typed by an «InterfaceBlock», with «FlowProperty» members whose
- *     "direction" tag says in/out/inout (see handleBlockPorts()). This is
- *     the sole source of Topic.publisherBlockNames/subscriberBlockNames.
- *     A separate BEHAVIORAL trace (SendSignalAction, SignalEvent triggers on
- *     a State Machine transition) is also still run, but deliberately does
- *     NOT write to those two fields anymore — see handleBlockSendSignalActions()/
- *     scanRegionForSubscriptions() for why it's retained.
+ * (c) Copyright, Real-Time Innovations, 2026.  All rights reserved.
+ * RTI grants Licensee a license to use, modify, compile, and create derivative
+ * works of the software solely for use with RTI Connext DDS. Licensee may
+ * redistribute copies of the software provided that all such copies are subject
+ * to this license. The software is provided "as is", with no warranty of any
+ * type, including any warranty for fitness for any purpose. RTI is under no
+ * obligation to maintain or support the software. RTI shall not be liable for
+ * any incidental or consequential damages arising out of the use or inability
+ * to use the software.
+ */
+
+/*
+ * ModelTopicScanner — reads the DDS interface out of a SysML model into a
+ * TopicModel:
+ *   - topics: every «DDS_Topic» Signal in scope, with its "data" attribute's
+ *     «Block» expanded into a DDS struct (nested Blocks become nested structs,
+ *     Enumerations become enums, fixed multiplicities become arrays);
+ *   - publishers and subscribers, structurally: a Block whose port is typed by
+ *     an «InterfaceBlock» with a «FlowProperty» typed by a topic Signal
+ *     publishes it ("out"), subscribes to it ("in"), or both ("inout");
+ *   - for each subscriber, the ports connected to its inbound port from
+ *     outside (where DdsInboundInjector delivers samples).
  *
- *     IMPORTANT: by this project's modeling convention, Blocks deliberately
- *     live OUTSIDE the «DDS_Domain» package (only «DDS_Topic» Signals live
- *     inside it) — so scan(Package) is a TWO-PASS scan (domain-scoped topic
- *     discovery, then a project-wide, topic-filtered Block/Port scan), not
- *     a simple single-pass containment walk. See scan(Package)'s own
- *     javadoc below for why.
+ * Blocks normally live outside the «DDS_Domain» package that holds the
+ * topics, so scan(Package) runs in two passes: topics from the domain, then
+ * a project-wide port scan limited to those topics.
  *
- * ============================== CONFIDENCE NOTE ==============================
- * The INTERFACES used here (Signal, SignalEvent, ChangeEvent, Port,
- * SendSignalAction, StateMachine, Transition, Property, Class) are verified
- * against your actual installed jdocs (jdocs.nomagic.com/190 + confirmed
- * present) — not guessed.
- *
- * The SPECIFIC GETTER METHODS called on them below (getOwnedAttribute(),
- * getAggregation(), getTrigger(), getEvent(), getSignal(), getOnPort(),
- * getRegion(), getTransition(), getClassifierBehavior(), etc.) follow the
- * standard OMG UML2 metamodel naming convention that this API has used
- * unchanged for many versions — high confidence, but NOT individually
- * re-verified one-by-one against your exact jar the way the interfaces were.
- * If build.bat reports "cannot find symbol" on any specific method below,
- * that's the method to look up in your local
- * <CAMEO_HOME>\openapi\docs\com/nomagic/uml2/... javadoc (which matches your
- * exact installed version, unlike the /190/ snapshot used for interface
- * verification) — the interface itself is not in question, just the exact
- * method name/signature on it.
- * ===============================================================================
+ * Stereotypes are resolved by profile and name (DDS_Profile, SysML), so a
+ * same-named stereotype from another profile is not mistaken for these.
  */
 package com.rti.connext.cameo.core;
 
@@ -78,52 +65,33 @@ import java.util.Set;
 public final class ModelTopicScanner {
 
     private static final String BLOCK_STEREOTYPE = "Block";
-    // The real DDS profile applied to the model: "DDS_Topic" (extends
-    // Signal) and "DDS_Domain" (extends Package, with an Integer tagged
-    // value "domain_id") are both looked up scoped to this profile by name
-    // — not via a bare global stereotype-name match — so a same-named
-    // stereotype from an unrelated profile can't be mistaken for these.
-    // Public: write-path callers (ImportQosProfileAction) resolving their
-    // own stereotypes via resolveStereotype() below need this profile name
-    // too — exposed rather than duplicating the literal separately.
+    // DDS_Profile stereotypes and tags. Public where ImportQosProfileAction
+    // (which creates QoS elements) needs the same names.
     public static final String DDS_PROFILE_NAME = "DDS_Profile";
     private static final String TOPIC_STEREOTYPE_NAME = "DDS_Topic";
     private static final String DOMAIN_STEREOTYPE_NAME = "DDS_Domain";
     private static final String DOMAIN_ID_TAG_NAME = "domain_id";
-    // "DDS_Member" (extends Property) — also DDS_Profile-scoped, same
-    // pattern as DDS_Topic/DDS_Domain above. Covers more than one concern:
-    // only a Property that needs to declare something special (it's the
-    // key, or it's a bounded-length string) gets this stereotype applied;
-    // a plain field with no special semantics stays unstereotyped.
+    // «DDS_Member» is applied only to a Property that is a key or a bounded
+    // string; ordinary fields carry no stereotype.
     private static final String MEMBER_STEREOTYPE_NAME = "DDS_Member";
     private static final String MEMBER_KEY_TAG_NAME = "key";      // Boolean
     private static final String MEMBER_MAX_TAG_NAME = "max";      // Integer, optional — string length bound
-    // "DDS_QosLibrary" (extends Package) and "DDS_QosProfile" — also
-    // DDS_Profile-scoped. DDS_QosProfile's own metaclass isn't stated by
-    // name here (findQosProfiles() below filters by Class, matching what
-    // ImportQosProfileAction actually creates) since only the manually-added
-    // stereotype (not this scanner) fixes that extension.
-    // Public for the same reason as DDS_PROFILE_NAME — ImportQosProfileAction
-    // (the write path) needs these exact names too, resolved via the shared
-    // resolveStereotype() below rather than a private, driftable copy.
+    // «DDS_QosProfile» elements are Classes (as ImportQosProfileAction
+    // creates them), usually inside a «DDS_QosLibrary» package.
     public static final String QOS_LIBRARY_STEREOTYPE_NAME = "DDS_QosLibrary";
     public static final String QOS_PROFILE_STEREOTYPE_NAME = "DDS_QosProfile";
-    // Public for the same reason — ImportQosProfileAction writes these tags.
     public static final String QOS_PARTICIPANT_NAME_TAG = "participant_name"; // String
     public static final String QOS_HISTORY_DEPTH_TAG = "history_depth";       // Integer
     public static final String QOS_IS_DEFAULT_TAG = "is_default";             // Boolean
-    // SysML's own built-in profile (confirmed named exactly "SysML" in the
-    // profile shipped with CAMEO) — NOT DDS_Profile — owns InterfaceBlock/
-    // FlowProperty, used for the structural Port -> pub/sub scan below.
+    // InterfaceBlock and FlowProperty come from CAMEO's built-in "SysML"
+    // profile.
     private static final String SYSML_PROFILE_NAME = "SysML";
     private static final String INTERFACE_BLOCK_STEREOTYPE_NAME = "InterfaceBlock";
     private static final String FLOW_PROPERTY_STEREOTYPE_NAME = "FlowProperty";
     private static final String FLOW_DIRECTION_TAG_NAME = "direction";
-    // Per your convention: a Topic Signal's one payload attribute is always
-    // named "data", typed by the Block that defines the payload structure.
-    // Public: DdsEngineListener needs this to read the payload struct back
-    // off a live SignalInstance (signalInstance.get(TOPIC_DATA_ATTRIBUTE_NAME))
-    // before it can read the struct's own fields.
+    // A «DDS_Topic» Signal's payload is its attribute named "data", typed by
+    // the «Block» that defines the message. Public: the listener and injector
+    // read and write the payload through it.
     public static final String TOPIC_DATA_ATTRIBUTE_NAME = "data";
 
     private final TopicModel result = new TopicModel();
@@ -132,11 +100,9 @@ public final class ModelTopicScanner {
     private Stereotype interfaceBlockStereotype;
     private Stereotype flowPropertyStereotype;
     private Stereotype memberStereotype;
-    // Set true only during scan(Package)'s Pass 2 (see below) — when true,
-    // handleFlowProperty() attaches publisher/subscriber Blocks ONLY to a
-    // topic Pass 1 already found, and never registers a new one, so a Block
-    // near a DIFFERENT domain's «DDS_Topic» Signal can't leak that topic
-    // into this scan's result.
+    // True during scan(Package)'s second pass: ports then only attach
+    // publishers/subscribers to topics the first pass found in the domain,
+    // so another domain's topics can't leak into the result.
     private boolean structuralScanRestrictedToExistingTopics;
 
     private ModelTopicScanner() {
@@ -161,35 +127,13 @@ public final class ModelTopicScanner {
     }
 
     /**
-     * Scans a «DDS_Domain» package for the topics/types that belong to it,
-     * THEN separately scans the whole project for the Blocks that publish
-     * or subscribe to those specific topics — the scope used by DDS XML
-     * generation, as opposed to {@link #scan(Element)}'s single-pass
-     * whole-model scan.
+     * Scans one «DDS_Domain»: the scope used to generate DDS XML.
      *
-     * TWO PASSES, because Blocks deliberately live OUTSIDE the «DDS_Domain»
-     * package by this project's modeling convention (only «DDS_Topic»
-     * Signals live inside it): a single-pass scan rooted at the domain
-     * package alone (the old behavior — this used to just delegate to
-     * {@link #scan(Element)}) never reached any Block at all, so
-     * Topic.publisherBlockNames/subscriberBlockNames stayed empty for
-     * every domain. Confirmed via a whole-project {@link #scan(Element)}
-     * run that DID find the correct publisher/subscriber Blocks, proving
-     * the Port -> InterfaceBlock -> FlowProperty -> direction -> Signal
-     * extraction logic itself was already correct — only the traversal
-     * SCOPE was wrong.
-     *
-     * Pass 1 (domain-scoped): walks domainPackage's own containment tree —
-     * exactly what scan(Element) does — registering «DDS_Topic» Signals
-     * found there as this domain's topics/types.
-     *
-     * Pass 2 (project-wide, topic-filtered): walks the WHOLE project
-     * looking for Blocks, running the STRUCTURAL Port scan on each one, but
-     * with structuralScanRestrictedToExistingTopics set so it only attaches
-     * a Block to a topic Pass 1 already found — never registers a new one.
-     * Without that restriction, a Block that happens to publish/subscribe
-     * to some OTHER domain's topic would leak that topic into this domain's
-     * result, breaking the domain isolation already verified working.
+     * Pass 1 registers the «DDS_Topic» Signals inside the domain package.
+     * Pass 2 scans the ports of every Block in the project — Blocks usually
+     * live outside the domain package — attaching publishers and subscribers
+     * only to Pass 1's topics, so another domain's topics never enter the
+     * result.
      */
     public static TopicModel scan(Package domainPackage) {
         ModelTopicScanner scanner = new ModelTopicScanner();
@@ -240,11 +184,9 @@ public final class ModelTopicScanner {
         if (domainStereotype == null) {
             return null;
         }
-        // NOTE: getStereotypePropertyValueAsString() was tried here first (it's
-        // the right call for an enum-backed tag like FlowProperty's "direction"
-        // below) but for this plain Integer-typed tag it silently returned "0"
-        // instead of the actually-set value in real testing — reverted to the
-        // raw-value accessor, which reads the real Integer/Number correctly.
+        // Integer tags are read with the raw-value accessor:
+        // getStereotypePropertyValueAsString() returns "0" for them regardless
+        // of the value set (observed on CAMEO 2024x).
         List<?> values = StereotypesHelper.getStereotypePropertyValue(domainPackage, domainStereotype, DOMAIN_ID_TAG_NAME);
         if (values == null || values.isEmpty()) {
             return null;
@@ -254,13 +196,8 @@ public final class ModelTopicScanner {
     }
 
     /**
-     * Profile-scoped «DDS_Topic» check (DDS_Profile), same lookupStereotype()
-     * resolution every other stereotype check in this class uses. Exposed
-     * publicly so callers outside this class (DdsEngineListener, in
-     * particular — it needs to recognize a «DDS_Topic» Signal at simulation
-     * time) resolve the stereotype exactly the same way scanning does,
-     * rather than maintaining their own separate, driftable copy of this
-     * lookup.
+     * Whether {@code signal} is a «DDS_Topic», resolved exactly as the scan
+     * resolves it (used by DdsEngineListener at simulation time).
      */
     public static boolean isDdsTopic(Signal signal) {
         Stereotype stereotype = lookupStereotype(signal, DDS_PROFILE_NAME, TOPIC_STEREOTYPE_NAME);
@@ -292,11 +229,8 @@ public final class ModelTopicScanner {
     }
 
     /**
-     * Finds every element stereotyped «DDS_QosProfile» (scoped to
-     * DDS_Profile) anywhere under root — deliberately NOT restricted to
-     * living inside a «DDS_QosLibrary» package, in case a profile ends up
-     * elsewhere in the model. Filtered to Class instances, matching what
-     * ImportQosProfileAction actually creates.
+     * Finds every Class stereotyped «DDS_QosProfile» anywhere under root,
+     * inside a «DDS_QosLibrary» or not.
      */
     public static List<Class> findQosProfiles(Element root) {
         Stereotype qosProfileStereotype = lookupStereotype(root, DDS_PROFILE_NAME, QOS_PROFILE_STEREOTYPE_NAME);
@@ -342,10 +276,7 @@ public final class ModelTopicScanner {
                     qosProfileElement, qosProfileStereotype, QOS_PARTICIPANT_NAME_TAG, false);
             participantName = (participantValues == null || participantValues.isEmpty()) ? null : participantValues.get(0);
 
-            // NOTE: raw-value accessor, not getStereotypePropertyValueAsString() —
-            // "history_depth" is a plain Integer tag, same shape as domain_id/max,
-            // and AsString was already found (see getDomainId()) to silently
-            // return "0" instead of the real value for that kind of tag.
+            // Integer tag: raw-value accessor (see getDomainId()).
             List<?> depthValues = StereotypesHelper.getStereotypePropertyValue(
                     qosProfileElement, qosProfileStereotype, QOS_HISTORY_DEPTH_TAG);
             Object rawDepth = (depthValues == null || depthValues.isEmpty()) ? null : depthValues.get(0);
@@ -361,12 +292,8 @@ public final class ModelTopicScanner {
     }
 
     /**
-     * Public, generic profile-scoped stereotype resolution — same
-     * lookupStereotype() pattern used internally throughout this class,
-     * exposed so write-path callers (ImportQosProfileAction, in particular —
-     * it needs to resolve «DDS_QosLibrary»/«DDS_QosProfile» before applying
-     * them to newly created elements) don't keep their own separate,
-     * driftable copy of this lookup — same rationale as isDdsTopic() above.
+     * Resolves a stereotype by profile and name, the same way the scan does
+     * (used by ImportQosProfileAction before applying stereotypes).
      */
     public static Stereotype resolveStereotype(Element contextElement, String profileName, String stereotypeName) {
         return lookupStereotype(contextElement, profileName, stereotypeName);
@@ -384,14 +311,8 @@ public final class ModelTopicScanner {
 
     private void visit(Element element) {
         if (element instanceof Signal) {
-            // A Signal is a DDS Topic candidate purely by being reachable
-            // here and stereotyped «DDS_Topic» — registration must NOT
-            // depend on some Block also referencing it behaviorally (that
-            // used to be the only path in; a structurally-declared Signal
-            // with no SendSignalAction/SignalEvent wiring was silently
-            // dropped — see handleBlockSendSignalActions()/
-            // scanRegionForSubscriptions() below for the behavioral trace,
-            // which no longer owns topic discovery).
+            // Every reachable «DDS_Topic» Signal is a topic, whether or not
+            // any behavior uses it.
             registerTopic((Signal) element);
         } else if (element instanceof Class && isBlock((Class) element)) {
             Class block = (Class) element;
@@ -400,10 +321,6 @@ public final class ModelTopicScanner {
             handleBlockPorts(block);
         }
 
-        // TODO: confirm exact recursive-children accessor. Element.getOwnedElement()
-        // is the standard UML2 name for "everything this element directly owns" —
-        // combined with this recursive visit() call it walks the whole containment
-        // tree. If your version names it differently, this is the line to fix.
         for (Element child : element.getOwnedElement()) {
             visit(child);
         }
@@ -440,9 +357,6 @@ public final class ModelTopicScanner {
     }
 
     private boolean isBlock(Class clazz) {
-        // hasStereotype(Element, String) is StereotypesHelper's convenience
-        // overload for checking by stereotype NAME (vs. passing a Stereotype
-        // object) — matches the "Block" name from your SysML profile.
         return StereotypesHelper.hasStereotype(clazz, BLOCK_STEREOTYPE);
     }
 
@@ -539,12 +453,8 @@ public final class ModelTopicScanner {
     }
 
     // -------------------------------------------------------------------------
-    // STRUCTURAL pub/sub: Block's Ports -> Port type («InterfaceBlock») ->
-    // owned Properties («FlowProperty») -> "direction" tag -> FlowProperty's
-    // type (a Signal, hopefully «DDS_Topic»). This is the sole source of
-    // Topic.publisherBlockNames/subscriberBlockNames — see the class comment
-    // and the BEHAVIORAL-trace sections above for why the old behavioral
-    // path no longer writes to those fields.
+    // Publishers and subscribers: Block port -> «InterfaceBlock» ->
+    // «FlowProperty» (direction) -> «DDS_Topic» Signal.
     // -------------------------------------------------------------------------
 
     private void handleBlockPorts(Class block) {
@@ -582,10 +492,7 @@ public final class ModelTopicScanner {
 
         TopicModel.Topic topic;
         if (structuralScanRestrictedToExistingTopics) {
-            // Pass 2 of scan(Package): only attach pub/sub to a topic Pass 1
-            // already found INSIDE this domain — never register a new one
-            // here, or a Block near a DIFFERENT domain's «DDS_Topic» Signal
-            // would leak that topic into this domain's result.
+            // scan(Package) pass 2: only topics the domain already has.
             topic = result.topics.get(signal.getName());
             if (topic == null) {
                 return;
@@ -613,18 +520,14 @@ public final class ModelTopicScanner {
     }
 
     /**
-     * Follows every connector wired INTO a subscriber's inbound Port from
-     * outside the subscriber, and records the Port at the far end (e.g. the
-     * DDS bus / test-environment Block's port). DdsInboundInjector sends
-     * through that far-end Port, so an injected signal travels the modeled
-     * connector into the subscriber. The far-end Port may be untyped — only
-     * the subscriber's side is part of the reviewed spec.
+     * Records the port at the far end of every connector wired into a
+     * subscriber's inbound port from outside (typically the harness Block's
+     * port, which may be untyped). DdsInboundInjector sends through it, so an
+     * injected signal travels the modeled connector into the subscriber.
      *
-     * "From outside" = the subscriber's end of the connector has a
-     * partWithPort (the Port is reached through a part typed by the
-     * subscriber Block). A delegation connector INSIDE the subscriber, from
-     * its boundary Port to one of its own internal parts, has no
-     * partWithPort on that end and is skipped.
+     * "From outside" means the subscriber's connector end has a partWithPort
+     * (the port is reached through a part typed by the subscriber). Delegation
+     * connectors inside the subscriber have none and are skipped.
      */
     private void collectInjectionPorts(Class subscriberBlock, Port subscriberPort, TopicModel.Topic topic) {
         for (ConnectorEnd end : subscriberPort.getEnd()) {
@@ -660,10 +563,8 @@ public final class ModelTopicScanner {
     // -------------------------------------------------------------------------
 
     /**
-     * Registers the given Signal as a Topic, but ONLY if it has the
-     * «DDS_Topic» stereotype (from DDS_Profile) applied — a plain Signal
-     * with no stereotype is just a regular UML signal, not a DDS topic, and
-     * is skipped (returns null).
+     * Registers {@code signal} as a topic if it is a «DDS_Topic» with a valid
+     * payload; returns null otherwise (plain Signals are not topics).
      */
     private TopicModel.Topic registerTopic(Signal signal) {
         if (topicStereotype == null || !StereotypesHelper.hasStereotype(signal, topicStereotype)) {
@@ -721,46 +622,29 @@ public final class ModelTopicScanner {
 
         TopicModel.StructType struct = new TopicModel.StructType(name);
 
-        // TODO: confirm Class.getOwnedAttribute() — standard UML2 name for
-        // "properties owned directly by this classifier" (value + part
-        // properties both come through this one accessor; they're
-        // distinguished by aggregation kind below).
         for (Property prop : block.getOwnedAttribute()) {
             String fieldName = prop.getName();
             Type propType = prop.getType();
 
-            // TODO: confirm Property.getAggregation() — standard UML2 name.
-            // COMPOSITE aggregation = part property (nested Block, complex
-            // type); NONE = value property (simple/primitive type).
+            // Composite aggregation = part property (nested struct);
+            // otherwise a value property.
             boolean isPart = prop.getAggregation() == AggregationKindEnum.COMPOSITE;
 
             if (isPart && propType instanceof Class && isBlock((Class) propType)) {
                 Class nestedBlock = (Class) propType;
                 buildStructType(nestedBlock); // recurse
-                // DDS_Member and fixed-size-array detection don't apply to
-                // nested struct references — only to simple value properties,
-                // per the property's own class.
+                // Key, bound and array detection apply to value properties
+                // only.
                 struct.fields.add(new TopicModel.Field(fieldName, null, nestedBlock.getName(), false, null, null, null));
             } else if (propType instanceof Enumeration) {
-                // Value property typed by a UML Enumeration (e.g.
-                // SensorModalityEnum) — a genuinely new case, distinct from
-                // both the nested-struct branch above and the primitive
-                // fallback below. Registered once into result.enums (shared/
-                // de-duplicated across fields/structs, same pattern as
-                // result.types), referenced from the Field by name.
+                // Enumeration-typed value property: the enum is registered
+                // once and referenced by name.
                 Enumeration enumType = (Enumeration) propType;
                 registerEnumType(enumType);
                 struct.fields.add(new TopicModel.Field(fieldName, null, null,
                         isKeyProperty(prop), readMaxLength(prop), readArrayDimension(prop), enumType.getName()));
             } else {
-                // Simple/value property — map its type name to a DDS primitive.
-                // TODO: this primitive mapping is a real design decision, not
-                // yet made: how do model types like "Integer", "String",
-                // "Real" map to DDS "int32"/"string"/"float64"? Currently a
-                // placeholder passthrough (uses the model type's name
-                // directly) — needs a real mapping table once you decide the
-                // convention (e.g. primitive UML types vs. a custom value
-                // type profile).
+                // Primitive value property; see mapPrimitive().
                 String typeName = propType != null ? propType.getName() : "string";
                 struct.fields.add(new TopicModel.Field(fieldName, mapPrimitive(typeName), null,
                         isKeyProperty(prop), readMaxLength(prop), readArrayDimension(prop), null));
@@ -776,10 +660,8 @@ public final class ModelTopicScanner {
     }
 
     /**
-     * True only if prop is stereotyped «DDS_Member» AND its "key" tagged
-     * value reads as true — the stereotype alone isn't enough, since it's a
-     * toggleable tag rather than a presence-only marker (a «DDS_Member»
-     * Property with key=false must NOT be treated as a key).
+     * True if {@code prop} is a «DDS_Member» whose "key" tag is true (the
+     * stereotype alone doesn't make a key).
      */
     private boolean isKeyProperty(Property prop) {
         if (!hasDdsMember(prop)) {
@@ -792,20 +674,9 @@ public final class ModelTopicScanner {
     }
 
     /**
-     * Reads the optional Integer "max" tagged value (bounded string length)
-     * off a «DDS_Member» Property — a Property may have DDS_Member applied
-     * for its key setting alone with no "max" set, or vice versa, so
-     * missing/unset reads as "no bound" (null), not an error. Only
-     * meaningful for string-typed fields; DdsXmlGenerator is responsible for
-     * ignoring this on a non-string field rather than this method trying to
-     * know that here.
-     *
-     * NOTE: uses the raw-value accessor (getStereotypePropertyValue), NOT
-     * getStereotypePropertyValueAsString() — "max" is a plain Integer tag,
-     * same shape as domain_id, and getStereotypePropertyValueAsString() was
-     * already found (see getDomainId()) to silently return "0" instead of
-     * the actually-set value for that kind of tag in live testing. Still
-     * logs the raw value read, same diagnostic discipline as everything else.
+     * The «DDS_Member» "max" tag (bounded string length), or null if unset.
+     * DdsXmlGenerator ignores it on non-string fields. Integer tag: raw-value
+     * accessor (see getDomainId()).
      */
     private Integer readMaxLength(Property prop) {
         if (!hasDdsMember(prop)) {
@@ -817,17 +688,9 @@ public final class ModelTopicScanner {
     }
 
     /**
-     * Detects a genuinely FIXED-size array via the Property's own
-     * multiplicity (Property implements MultiplicityElement — confirmed via
-     * local javadoc: {@code int getLower()}/{@code int getUpper()}, both
-     * plain ints, no ValueSpecification unwrapping needed). Only
-     * upper == lower AND upper > 1 counts (e.g. a [2] or [3] multiplicity on
-     * a Real/Integer/etc. value property) — a variable-length sequence
-     * (0..*, 1..*, or any other upper != lower shape) is deliberately left
-     * alone (returns null) and is NOT the same thing; this scanner doesn't
-     * attempt to handle sequences. Ordinary scalar properties (typically
-     * lower=upper=1) also return null. Logs the raw lower/upper read, same
-     * diagnostic discipline as domain_id/direction/key/max.
+     * The length of a fixed-size array ([N] multiplicity with N > 1), or
+     * null. Variable-length multiplicities (0..*, 1..*) are not supported as
+     * DDS sequences and are treated as single values.
      */
     private Integer readArrayDimension(Property prop) {
         int lower = prop.getLower();
@@ -839,15 +702,8 @@ public final class ModelTopicScanner {
     }
 
     /**
-     * Registers a UML Enumeration into result.enums the first time it's
-     * referenced by any Field — subsequent references to the same
-     * Enumeration (by name) are no-ops, same de-duplication shape as
-     * result.types for nested structs. Literal names are read via
-     * Enumeration.getOwnedLiteral() (confirmed via local javadoc: returns
-     * List&lt;EnumerationLiteral&gt; in declaration order) and
-     * EnumerationLiteral.getName() (inherited from NamedElement) — no
-     * explicit integer values are read from the model; DdsXmlGenerator
-     * assigns sequential ones on emission.
+     * Registers an Enumeration once, with its literal names in declaration
+     * order; DdsXmlGenerator numbers them sequentially.
      */
     private void registerEnumType(Enumeration enumType) {
         String name = enumType.getName();
@@ -862,11 +718,9 @@ public final class ModelTopicScanner {
     }
 
     /**
-     * PLACEHOLDER mapping from a UML/model type name to a DDS primitive type
-     * name. TODO: this is a stub, not a real mapping — fill in once you've
-     * decided the modeling convention for primitive value properties (plain
-     * UML primitives like Integer/String/Boolean/Real, or a custom SysML
-     * value type profile, etc.).
+     * Maps a model primitive type to a DDS type. Only the four UML
+     * primitives are mapped; any other value type (e.g. a SysML value type
+     * with units) is sent as a string — a known limitation.
      */
     private String mapPrimitive(String modelTypeName) {
         switch (modelTypeName) {
@@ -874,7 +728,7 @@ public final class ModelTopicScanner {
             case "Real":    return "float64";
             case "Boolean": return "boolean";
             case "String":  return "string";
-            default:        return "string"; // unmapped fallback — flag these
+            default:        return "string";
         }
     }
 }

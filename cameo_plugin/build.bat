@@ -85,7 +85,7 @@ if defined RTIJDKHOME (
 if "%NDDSHOME%"=="" (
     echo ERROR: NDDSHOME is not set.
     echo        Set it to the RTI Connext DDS installation root, e.g.:
-    echo          set NDDSHOME=C:\RTI\rti_connext_dds-7.7.0
+    echo          set NDDSHOME=C:\Program Files\rti_connext_dds-7.5.0
     exit /b 1
 )
 if "%CAMEO_HOME%"=="" (

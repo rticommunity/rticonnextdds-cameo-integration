@@ -1,50 +1,32 @@
 /*
- * FumlValueBridge.java — CAMEO 2024x variant. See src26x/.../FumlValueBridge.java
- * for the 2026x port (fUML.Semantics.* moved to
- * com.nomagic.magicdraw.simulation.fuml.* between these two CST versions —
- * confirmed via javap against both installs' simulation.toolkit.core jars;
- * source-incompatible, hence two copies rather than one shared file). Picked
- * up by build.bat 2024x; build.bat 2026x picks up the src26x/ copy instead. Every
- * other file in this package is fully shared between both builds.
+ * (c) Copyright, Real-Time Innovations, 2026.  All rights reserved.
+ * RTI grants Licensee a license to use, modify, compile, and create derivative
+ * works of the software solely for use with RTI Connext DDS. Licensee may
+ * redistribute copies of the software provided that all such copies are subject
+ * to this license. The software is provided "as is", with no warranty of any
+ * type, including any warranty for fitness for any purpose. RTI is under no
+ * obligation to maintain or support the software. RTI shall not be liable for
+ * any incidental or consequential damages arising out of the use or inability
+ * to use the software.
+ */
+
+/*
+ * FumlValueBridge — the plugin's only access to Cameo Simulation Toolkit's
+ * fUML runtime value types (CAMEO 2024x; the src26x copy differs only in the
+ * imports, because these types moved package in CST 2026x).
  *
- * FumlValueBridge.java — the ONE deliberately-accepted internal-API-adjacent
- * dependency in this plugin.
+ * Reading field values out of a running simulation requires CST's fUML value
+ * types (SignalInstance, StructuredValue, Object_), which CST marks
+ * @InternalApi + @Deprecated; there is no public alternative. To keep that
+ * dependency contained:
+ *   - field values are read through ALH, CST's public (@OpenApiAll)
+ *     scripting helper, rather than through the internal types' own methods;
+ *   - the remaining direct uses (SignalInstance.type, Object_.getTypes()) are
+ *     in this class only;
+ *   - every other class passes plain Objects and never imports these types.
  *
- * BACKGROUND: reading live field values out of a running CST simulation
- * requires touching NoMagic's fUML runtime value types
- * (fUML.Semantics.CommonBehaviors.Communications.SignalInstance,
- * fUML.Semantics.Classes.Kernel.StructuredValue, ...), all of which are
- * marked, at the class level, @InternalApi(reason="No Magic internal API.
- * This code can change without any notification.") + @Deprecated — confirmed
- * via `javap -v -p`. See DdsEngineListener.java's file header for the full
- * search history (SignalInstance, StructuredValue/CompoundValue/Value/
- * FeatureValue, ObjectToken/Token, ValuesHelper, StructuralFeatureListener —
- * all internal, no supported alternative for touching these TYPES directly).
- *
- * UPGRADE: com.nomagic.magicdraw.simulation.utils.ALH IS a fully public,
- * @OpenApiAll-marked class (confirmed via javap -v -p, no @Deprecated at the
- * class level, and no method-level override on the specific methods used
- * below) — it's NoMagic's own documented scripting helper, the same thing
- * available inside a Groovy Opaque Behavior. Its methods still take/return
- * the internal fUML types in their signatures (ALH.getValue(StructuredValue,
- * String) — the class boundary is public/supported even though the data
- * flowing through it is still fUML-shaped), so this file still needs to cast
- * to StructuredValue/SignalInstance to call it — but the METHOD CALLS
- * themselves (ALH.getValue(...), as opposed to StructuredValue.get(...)
- * directly) are now on a class NoMagic commits to keeping stable. The one
- * remaining direct internal-type touch is SignalInstance.type (a public but
- * individually @InternalApi+@Deprecated field — ALH has no equivalent
- * accessor for "what Signal is this SignalInstance for").
- *
- * SCOPE DECISION: isolate all of this — both the ALH usage and the one
- * remaining raw field read — to this one file. Every other class in the
- * plugin receives/passes plain java.lang.Object (or the public
- * com.nomagic.uml2...Signal type) and never imports fUML.Semantics.*, ALH,
- * or Token types directly.
- *
- * FAILURE MODE: every method here can throw. Callers MUST catch and treat
- * failure as "could not extract this field/signal" — never let a failure
- * here take down the simulation or the publish loop.
+ * Every method can throw; callers treat a failure as "could not read this
+ * value" and must not let it stop the simulation.
  */
 package com.rti.connext.cameo.dds;
 
@@ -65,10 +47,9 @@ final class FumlValueBridge {
     }
 
     /**
-     * Returns the UML Signal a SimulationExecutionListener.eventTriggered()
-     * SignalInstance represents, or null if {@code signalInstanceObj} isn't
-     * actually a SignalInstance (defensive — callers receive it as Object so
-     * this class is the only one that imports the fUML type).
+     * The UML Signal a SignalInstance (from
+     * SimulationExecutionListener.eventTriggered()) is an instance of, or null
+     * if {@code signalInstanceObj} isn't a SignalInstance.
      */
     @SuppressWarnings("deprecation")
     static Signal getSignal(Object signalInstanceObj) {
@@ -97,10 +78,8 @@ final class FumlValueBridge {
     }
 
     /**
-     * Reads one named field off a live simulation struct/signal value (a
-     * SignalInstance, or a nested struct value reached from one), via
-     * ALH.getValue() — NoMagic's own supported wrapper, not a direct call
-     * onto the internal StructuredValue.get().
+     * Reads one named field of a running simulation value (a SignalInstance,
+     * or a nested struct value reached from one) through ALH.getValue().
      *
      * @throws IllegalArgumentException if {@code structuredValueObj} isn't a
      *                                   StructuredValue

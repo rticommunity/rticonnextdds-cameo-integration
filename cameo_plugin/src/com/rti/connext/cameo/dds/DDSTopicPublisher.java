@@ -1,16 +1,22 @@
 /*
- * DDSTopicPublisher.java — reusable, topic-agnostic DDS publish helper.
+ * (c) Copyright, Real-Time Innovations, 2026.  All rights reserved.
+ * RTI grants Licensee a license to use, modify, compile, and create derivative
+ * works of the software solely for use with RTI Connext DDS. Licensee may
+ * redistribute copies of the software provided that all such copies are subject
+ * to this license. The software is provided "as is", with no warranty of any
+ * type, including any warranty for fitness for any purpose. RTI is under no
+ * obligation to maintain or support the software. RTI shall not be liable for
+ * any incidental or consequential damages arising out of the use or inability
+ * to use the software.
+ */
+
+/*
+ * DDSTopicPublisher — writes JSON-encoded samples to the DataWriters defined
+ * in the active DDS XML config, and owns the DomainParticipants (shared with
+ * DDSTopicSubscriber).
  *
- * Publishes a JSON payload to any participant/writer defined in the resolved
- * XML Application Creation config, on demand — the right shape for something
- * triggered from a simulation event (see DdsEngineListener) rather than a
- * long-running background thread.
- *
- * DomainParticipant creation is expensive (it triggers discovery/matching
- * with every other participant on the domain), so participants are created
- * lazily on first use and cached per participantConfigName for the life of
- * the plugin. Call shutdown() (wired into RTIConnextPlugin.close()) to tear
- * the cached participants down.
+ * Participants are created from the XML on first use, one per participant
+ * config name, and cached until the simulation run ends (shutdown()).
  */
 package com.rti.connext.cameo.dds;
 
@@ -34,8 +40,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public final class DDSTopicPublisher {
 
-    // Cached DomainParticipants, keyed by participant config name — created
-    // lazily on first use, reused across all subsequent publishOnce() calls.
+    // DomainParticipants by participant config name, created on first use.
     private static final ConcurrentHashMap<String, DomainParticipant> PARTICIPANTS =
             new ConcurrentHashMap<>();
 
@@ -46,14 +51,9 @@ public final class DDSTopicPublisher {
     // True when the generated file was rewritten since RTI last loaded it.
     private static volatile boolean profilesStale = false;
 
-    // Set once, on first publishOnce() call — routes NDDS's own internal
-    // diagnostic logging into this GUI log. Added specifically because
-    // RETCODE_ERROR on write() was carrying no message (confirmed via
-    // decompiling RETCODE_ERROR.check_return_codeI(): it only attaches a
-    // message when the native get_last_error_messages_and_clearI() call
-    // returns non-null, which it wasn't for these failures) — the actual
-    // reason lives in NDDS's own Logger output, which defaults to going
-    // nowhere this plugin could see it.
+    // RTI's own log messages are routed to CAMEO's Notification window
+    // (once). Without this, a failing write() raises RETCODE_ERROR with no
+    // explanation: the reason only appears in RTI's log.
     private static volatile boolean loggingConfigured = false;
 
     private DDSTopicPublisher() {
@@ -87,10 +87,10 @@ public final class DDSTopicPublisher {
      * Publishes a single JSON-encoded sample to the given data writer, under
      * the given participant config entry.
      *
-     * @param participantConfigName e.g. "DomainParticipantLibrary::SquareParticipant"
-     * @param dataWriterName        e.g. "Publisher::SquareWriter" — must exist
-     *                               under the given participant in the XML config
-     * @param jsonPayload            e.g. {"color":"BLUE","x":100,"y":200,"shapesize":30}
+     * @param participantConfigName e.g. "DomainParticipantLibrary::SAGE"
+     * @param dataWriterName        e.g. "Publisher::GatedReportWriter" — must
+     *                               exist under that participant in the XML
+     * @param jsonPayload            the sample as JSON, matching the writer's type
      * @throws IOException if the XML config can't be resolved
      * @throws RuntimeException if participant/writer creation fails, or the
      *                          JSON payload doesn't match the writer's registered type
@@ -124,13 +124,9 @@ public final class DDSTopicPublisher {
     }
 
     /**
-     * Returns the cached DomainParticipant for the given config name,
-     * creating it (and configuring NDDS logging/resolving the XML config, on
-     * first use) if it doesn't exist yet. Package-private — shared with
-     * DDSTopicSubscriber so a participant that already exists here (because
-     * something in this same participant already publishes) isn't recreated
-     * a second time just to add a reader; a single DomainParticipant can
-     * hold both writers and readers.
+     * The participant for {@code participantConfigName}, created on first
+     * use. Shared with DDSTopicSubscriber: one participant holds a Block's
+     * writers and readers.
      */
     static DomainParticipant getOrCreateParticipant(String participantConfigName) throws IOException {
         ensureLoggingConfigured();
@@ -140,9 +136,8 @@ public final class DDSTopicPublisher {
     }
 
     /**
-     * Creates a new DomainParticipant from the given config name. Only called
-     * by PARTICIPANTS.computeIfAbsent() above, which guarantees this runs at
-     * most once per participantConfigName even under concurrent callers.
+     * Creates a participant from the XML config; called at most once per
+     * name (via computeIfAbsent).
      */
     private static DomainParticipant createParticipant(String participantConfigName, String xmlUrl) {
         DomainParticipantFactoryQos factoryQos = new DomainParticipantFactoryQos();
@@ -168,9 +163,8 @@ public final class DDSTopicPublisher {
     }
 
     /**
-     * Deletes and forgets every cached DomainParticipant. Called from
-     * RTIConnextPlugin.close() so cached participants don't outlive the
-     * plugin.
+     * Deletes every participant and its entities. Called when a simulation
+     * run ends and when the plugin closes.
      */
     public static synchronized void shutdown() {
         for (DomainParticipant participant : PARTICIPANTS.values()) {
@@ -234,8 +228,7 @@ public final class DDSTopicPublisher {
     }
 
     /**
-     * Pushes a message to the CAMEO notification log, falling back to stdout
-     * when the CAMEO Application is not available (e.g. during unit tests).
+     * Logs to CAMEO's Notification window, or stdout outside CAMEO.
      */
     private static void log(String msg) {
         try {
