@@ -43,11 +43,6 @@ public final class JsonPayloadBuilder {
         return this;
     }
 
-    public JsonPayloadBuilder addInt(String key, int value) {
-        rawFields.put(key, String.valueOf(value));
-        return this;
-    }
-
     public JsonPayloadBuilder addRaw(String key, String rawJsonValue) {
         rawFields.put(key, rawJsonValue);
         return this;

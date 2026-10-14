@@ -34,7 +34,6 @@ package com.rti.connext.cameo.core;
 import com.nomagic.magicdraw.core.Application;
 import com.nomagic.magicdraw.core.Project;
 import com.nomagic.uml2.ext.jmi.helpers.StereotypesHelper;
-import com.nomagic.uml2.ext.magicdraw.actions.mdbasicactions.SendSignalAction;
 import com.nomagic.uml2.ext.magicdraw.classes.mdkernel.AggregationKindEnum;
 import com.nomagic.uml2.ext.magicdraw.classes.mdkernel.Class;
 import com.nomagic.uml2.ext.magicdraw.classes.mdkernel.Element;
@@ -44,17 +43,12 @@ import com.nomagic.uml2.ext.magicdraw.classes.mdkernel.Package;
 import com.nomagic.uml2.ext.magicdraw.classes.mdkernel.Property;
 import com.nomagic.uml2.ext.magicdraw.classes.mdkernel.Type;
 import com.nomagic.uml2.ext.magicdraw.commonbehaviors.mdcommunications.Signal;
-import com.nomagic.uml2.ext.magicdraw.commonbehaviors.mdcommunications.SignalEvent;
-import com.nomagic.uml2.ext.magicdraw.commonbehaviors.mdcommunications.Trigger;
 import com.nomagic.uml2.ext.magicdraw.compositestructures.mdinternalstructures.ConnectableElement;
 import com.nomagic.uml2.ext.magicdraw.compositestructures.mdinternalstructures.Connector;
 import com.nomagic.uml2.ext.magicdraw.compositestructures.mdinternalstructures.ConnectorEnd;
 import com.nomagic.uml2.ext.magicdraw.compositestructures.mdports.Port;
 import com.nomagic.uml2.ext.magicdraw.mdprofiles.Profile;
 import com.nomagic.uml2.ext.magicdraw.mdprofiles.Stereotype;
-import com.nomagic.uml2.ext.magicdraw.statemachines.mdbehaviorstatemachines.Region;
-import com.nomagic.uml2.ext.magicdraw.statemachines.mdbehaviorstatemachines.StateMachine;
-import com.nomagic.uml2.ext.magicdraw.statemachines.mdbehaviorstatemachines.Transition;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -315,10 +309,7 @@ public final class ModelTopicScanner {
             // any behavior uses it.
             registerTopic((Signal) element);
         } else if (element instanceof Class && isBlock((Class) element)) {
-            Class block = (Class) element;
-            handleBlockStateMachine(block);
-            handleBlockSendSignalActions(block);
-            handleBlockPorts(block);
+            handleBlockPorts((Class) element);
         }
 
         for (Element child : element.getOwnedElement()) {
@@ -327,17 +318,9 @@ public final class ModelTopicScanner {
     }
 
     /**
-     * Pass-2 traversal for {@link #scan(Package)}: finds every Block
-     * anywhere under the given root and runs the STRUCTURAL Port scan on it
-     * (handleBlockPorts()) — but, unlike visit(), does NOT treat a Signal as
-     * a topic candidate and does NOT run the BEHAVIORAL trace
-     * (handleBlockStateMachine()/handleBlockSendSignalActions()). Both of
-     * those call registerTopic() unconditionally, which would register
-     * whatever «DDS_Topic» Signal they happen to find anywhere in the whole
-     * project — exactly the cross-domain leakage
-     * structuralScanRestrictedToExistingTopics (checked inside
-     * handleFlowProperty()) is meant to prevent. Only ever called with that
-     * flag set.
+     * Pass 2 of {@link #scan(Package)}: runs the port scan on every Block
+     * under {@code element}, without registering any Signal it passes as a
+     * topic (only the domain's own topics count).
      */
     private void visitBlockPorts(Element element) {
         if (element instanceof Class && isBlock((Class) element)) {
@@ -358,98 +341,6 @@ public final class ModelTopicScanner {
 
     private boolean isBlock(Class clazz) {
         return StereotypesHelper.hasStereotype(clazz, BLOCK_STEREOTYPE);
-    }
-
-    // -------------------------------------------------------------------------
-    // BEHAVIORAL trace (kept, not deleted): Block's State Machine ->
-    // Transition -> SignalEvent trigger. Retained for a future, backlogged
-    // validation feature that cross-checks this behavioral wiring against
-    // the STRUCTURAL scan (handleBlockPorts() below) — e.g. flagging a Block
-    // whose Port/FlowProperty direction says it publishes a topic but whose
-    // state machine never actually sends it, or vice versa. Does NOT write
-    // to Topic.subscriberBlockNames/publisherBlockNames anymore — the
-    // structural scan is the sole source for those two fields now.
-    // -------------------------------------------------------------------------
-
-    private void handleBlockStateMachine(Class block) {
-        // TODO: confirm exact accessor for "this Block's classifier behavior,
-        // if it's a StateMachine". Class.getClassifierBehavior() is the
-        // standard UML2 name (classifier behavior = the behavior that runs
-        // for the lifetime of an instance) — commonly a StateMachine for a
-        // Block in this kind of design.
-        Object classifierBehavior = block.getClassifierBehavior();
-        if (!(classifierBehavior instanceof StateMachine)) {
-            return;
-        }
-        StateMachine sm = (StateMachine) classifierBehavior;
-
-        for (Region region : sm.getRegion()) {
-            scanRegionForSubscriptions(region, block);
-        }
-    }
-
-    private void scanRegionForSubscriptions(Region region, Class subscriberBlock) {
-        for (Transition transition : region.getTransition()) {
-            for (Trigger trigger : transition.getTrigger()) {
-                Object event = trigger.getEvent();
-                if (event instanceof SignalEvent) {
-                    Signal signal = ((SignalEvent) event).getSignal();
-                    if (signal != null) {
-                        // Detection only, deliberately discarded beyond this —
-                        // see the class comment above for why.
-                        registerTopic(signal);
-                    }
-                }
-                // ChangeEvent triggers deliberately ignored here — per your
-                // design, those represent internal-only logic, not DDS traffic.
-            }
-        }
-        // TODO: Regions can nest (composite states contain sub-regions via
-        // their own owned States). This only scans one level — recurse into
-        // State.getRegion() for each State in this region if your models use
-        // nested composite states for subscription logic.
-    }
-
-    // -------------------------------------------------------------------------
-    // BEHAVIORAL trace (kept, not deleted): Block's owned Activities ->
-    // SendSignalAction. Same retention rationale as scanRegionForSubscriptions()
-    // above — no longer writes to Topic.publisherBlockNames.
-    // -------------------------------------------------------------------------
-
-    private void handleBlockSendSignalActions(Class block) {
-        // TODO: this walks every owned element under the Block looking for
-        // SendSignalAction, rather than specifically navigating "owned
-        // Activities" — simpler and catches SendSignalActions wherever they
-        // live (entry/exit/do activities, owned Activity diagrams, etc.),
-        // at the cost of being less precise about *which* activity it's in.
-        for (Element descendant : allDescendants(block)) {
-            if (descendant instanceof SendSignalAction) {
-                SendSignalAction action = (SendSignalAction) descendant;
-                Signal signal = action.getSignal();
-                if (signal != null) {
-                    // Detection only, deliberately discarded beyond this —
-                    // see the class comment above for why.
-                    registerTopic(signal);
-                    // TODO: action.getOnPort() gives the Port used to send —
-                    // useful later for validating the Port's type/direction
-                    // matches the topic, or for XML generation if ports need
-                    // to map to specific DDS entities. Not used yet.
-                }
-            }
-        }
-    }
-
-    private Iterable<Element> allDescendants(Element root) {
-        java.util.List<Element> out = new java.util.ArrayList<>();
-        collectDescendants(root, out);
-        return out;
-    }
-
-    private void collectDescendants(Element element, java.util.List<Element> out) {
-        for (Element child : element.getOwnedElement()) {
-            out.add(child);
-            collectDescendants(child, out);
-        }
     }
 
     // -------------------------------------------------------------------------
