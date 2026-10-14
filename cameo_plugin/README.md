@@ -45,8 +45,9 @@ service, live display) are in a separate repository:
 2. Run `setup_rti_config.bat 2024x` (or `2026x`; double-clicking asks). It
    opens an Administrator command window with the environment set.
 3. In that window: `build.bat`, `install.bat`, then `run_cameo.bat`.
-4. Open `DDS_Models/SAGE.mdzip` and simulate the `Test` Block, or set up your
-   own model as described in [Model setup](#model-setup).
+4. Open `DDS_Models/SAGE.mdzip` and run the Simulation Configuration
+   `Test for Test`, or set up your own model as described in
+   [Model setup](#model-setup).
 
 ### Prerequisites
 
@@ -133,8 +134,20 @@ files change.
 
 ### 5. Run
 
-Simulate the Test Context (right-click > Simulate, or a Simulation
-Configuration). The Notification window shows:
+Run the Test Context through a **Simulation Configuration**:
+
+- **SAGE example:** in `SAGE.mdzip`, run the Simulation Configuration
+  **`Test for Test`** (its execution target is the `Test` Block).
+- **Your own model:** copy **`DDS Simulation Instance`** from the profile's
+  `DDS Simulation` package into your project and set its **execution target**
+  to your Test Context. Run as-is, it simulates the bare harness, whose
+  `SYSTEM_UNDER_TEST` has no type, so nothing goes on the DDS bus. Keep its
+  settings — notably *Treat All Classifiers As Active*, which runs the system
+  under test's own behavior, and *Auto Start*.
+
+Right-click > Simulate on the Test Context works too. Start the other DDS
+applications (e.g. the sensor emulator) before or during the run. The
+Notification window shows:
 
 ```
 [RTI Connext] Generated DDS config from the model (domain 'DDS_Schema', id 0): <temp>\rti_cameo\SAGE_dds_generated.xml
