@@ -11,3 +11,6 @@ Thumbs.db
 # setup_rti_config_26x.bat is the pre-merge 2026x copy)
 cameo_plugin/setup_rti_config.bat
 cameo_plugin/setup_rti_config_26x.bat
+
+# SAGE-model-specific scripts (kept local; the SAGE model ships separately)
+cameo_plugin/groovy/sage/
