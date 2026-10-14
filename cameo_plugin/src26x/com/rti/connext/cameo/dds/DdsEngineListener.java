@@ -276,7 +276,7 @@ public class DdsEngineListener extends SimulationExecutionListener implements En
             }
             String json = builder.build();
 
-            log("[DDS Listener] Publishing " + pending.dataWriterName + " <- " + json);
+            log("[DDS Listener] Publishing " + pending.dataWriterName + ": " + json);
             DDSTopicPublisher.publishOnce(pending.participantConfigName, pending.dataWriterName, json);
             log("[DDS Listener] Published to " + pending.dataWriterName + ".");
         } catch (Exception ex) {
@@ -330,7 +330,7 @@ public class DdsEngineListener extends SimulationExecutionListener implements En
         } else if ("string".equals(field.primitiveType)) {
             String stringValue = (raw instanceof EnumerationLiteral)
                     ? ((EnumerationLiteral) raw).getName()
-                    : String.valueOf(raw);
+                    : (raw instanceof Number) ? plainNumber((Number) raw) : String.valueOf(raw);
             builder.addString(field.name, stringValue);
         } else if (raw instanceof String) {
             builder.addString(field.name, (String) raw);
@@ -386,6 +386,22 @@ public class DdsEngineListener extends SimulationExecutionListener implements En
         } else {
             return JsonPayloadBuilder.quote(String.valueOf(element));
         }
+    }
+
+    /**
+     * Text for a number going into a DDS string field, without Java's
+     * scientific notation: a timestamp that reaches us as the Double
+     * 1.791952739611E12 is written "1791952739611", and 0.25 stays "0.25".
+     */
+    private static String plainNumber(Number n) {
+        if (n instanceof Double || n instanceof Float) {
+            double d = n.doubleValue();
+            if (Double.isNaN(d) || Double.isInfinite(d)) {
+                return String.valueOf(d);
+            }
+            return java.math.BigDecimal.valueOf(d).stripTrailingZeros().toPlainString();
+        }
+        return n.toString();
     }
 
     private PendingPublish takePending(Signal signal) {

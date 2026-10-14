@@ -97,7 +97,7 @@ Configuration). The Notification window shows:
 ```
 [RTI Connext] Generated DDS config from the model (domain 'X', id 0): <temp>\rti_cameo\<Project>_dds_generated.xml
 [DDS Inject] Simulating 'DDS_Simulation_Environment' -- DDS subscribers in this simulation: [SAGE]
-[DDS Listener] Publishing Publisher::GatedReportWriter <- {...}
+[DDS Listener] Publishing Publisher::GatedReportWriter: {...}
 [DDS Inject] Injected 'SensorReport' into 'SAGE' via port 'dds-bus-listener'.
 ```
 
