@@ -6,9 +6,9 @@ Makes a running SysML simulation a live node on an RTI Connext DDS bus:
   publishes it as a real DDS sample.
 - **Inbound:** DDS samples from other applications are injected into the
   running simulation as Signals, through the model's own ports and connectors.
-- **Configuration:** the DDS XML (types, topics, participants, QoS) is
-  generated from the model at every simulation start, so it can't drift from
-  the model.
+- **Configuration:** DDS types, topics and participants are generated from
+  the model at every simulation start. QoS comes from the model or a selected
+  XML profile.
 
 Works with CAMEO **2024x** and **2026x**. How it works internally:
 [`docs/architecture.md`](docs/architecture.md).
@@ -134,8 +134,11 @@ project, like `DDS_Message_Library.mdzip`.
 
   Stop and restart the simulation after changing these tags so the generated
   DDS configuration and entities use the updated type.
-5. **Optional QoS:** use **Tools > RTI Connext DDS > Import QoS Profile** to
-   add a `«DDS_QosProfile»`, then set its `is_default` tag to `true`.
+5. **Optional QoS:** use **Tools > RTI Connext DDS > QoS > Load QoS XML...**
+  to select a file and profile. Change the library/profile from the same
+  **QoS** submenu. Types still come from the model. Existing model-defined
+  `«DDS_QosProfile»` elements remain supported through **Use Model QoS**;
+  see [Tools menu](#tools-menu).
 
 The topic, field and type names are the contract with every other application
 on the bus: renaming one in the model is an interface change.
@@ -274,7 +277,8 @@ With verbose tracing, the Notification window includes:
 
 Only the Blocks in the simulated Block's composition go on the DDS bus. To run
 a hand-maintained XML instead of the generated one, start CAMEO with
-`-Dcom.rti.connext.cameo.xmlConfig=<path>`.
+`-Dcom.rti.connext.cameo.xmlConfig=<path>`. This replaces the whole configuration
+and cannot be combined with the QoS-only file selection.
 
 ---
 
@@ -284,11 +288,32 @@ a hand-maintained XML instead of the generated one, start CAMEO with
 
 - **Scan Model for DDS Topics** — logs every topic and type the plugin finds.
 - **Generate DDS XML** — exports the config for a `«DDS_Domain»` to a file,
-  e.g. to hand to another team. Not needed for simulation.
-- **Import QoS Profile** — creates a `«DDS_QosProfile»` element from an RTI
-  QoS XML file.
+  e.g. to hand to another team. This model export does not apply the runtime
+  QoS-file override. Not needed for simulation.
+- **QoS > Load QoS XML...** — select an XML file and a `Library::Profile` to use its
+  QoS policies instead of model QoS. Only QoS libraries are loaded; types,
+  topics and endpoints still come from the model.
+  Generated publisher, subscriber, writer and reader names take precedence
+  over imported names so the plugin can still locate its endpoints.
+- **QoS > Library > Profile** — switch between profiles in the loaded
+  XML file. The active profile and its library are checked; no file picker
+  is needed.
+- **QoS > Use Model QoS** — clears the QoS-file override. Existing model QoS
+  profiles remain supported; currently only their history depth is used.
 - **Verbose DDS Logging** — check to log each received, injected and published
   sample; uncheck to stop sample tracing immediately.
+
+QoS selections last for the current CAMEO session and take effect after stopping
+and restarting the simulation. The file is reread at each simulation start.
+The selected profile is referenced by participant, publisher, subscriber, writer
+and reader QoS. Generated topics have no `topic_qos` references. Use a
+self-contained file with all required QoS libraries; inheritance from RTI
+built-in profiles is supported. External XML includes and per-topic
+`topic_filter` selection are not supported.
+
+Generated XML uses the Connext version from `NDDSHOME/rti_versions.xml` for its
+`version` attribute and `https://community.rti.com/schema/<version>/rti_dds_profiles.xsd`
+schema URL. `NDDSHOME` must point to a readable Connext installation.
 
 ---
 
@@ -302,6 +327,7 @@ a hand-maintained XML instead of the generated one, start CAMEO with
 | `No source for License information` / participant creation fails | Set `RTI_LICENSE_FILE` before starting CAMEO. |
 | `class file has wrong version` while building | Wrong compiler: 2024x needs `javac` 17+, 2026x needs 21+. Update `PATH`. |
 | `found N «DDS_Domain» packages` | The generated config supports exactly one `«DDS_Domain»` per project. |
+| Selected QoS file moved or profile removed | Use **QoS > Load QoS XML...** to reselect the file/profile, or choose **QoS > Use Model QoS**, then restart the simulation. |
 | `«DDS_Topic» Signal 'X' skipped: ...` | Give the Signal an attribute named `data` typed by a `«Block»`. |
 | `DDS subscribers in this simulation: none` | The simulated Block's composition contains no subscribing Block: check that `SYSTEM_UNDER_TEST` is redefined and typed by your service. |
 | `nothing is connected to 'Block.port'` | Connect `dds-bus-listener` to the service's subscribing port in the Test Context's IBD (step 4). |

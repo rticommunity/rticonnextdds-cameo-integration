@@ -223,9 +223,9 @@ copy /Y "%NDDSJAVA_JAR%" %OUT%\nddsjava.jar >nul
 ::    model scanning, kept separate from any specific pub/sub backend) and
 ::    com\rti\connext\cameo\dds\*.java (DDSTopicPublisher, DDSTopicSubscriber,
 ::    DdsSubscriptionQueue, DdsXmlGenerator, GenerateDdsXmlAction,
-::    ImportQosProfileAction, DdsEngineListener — the RTI Connext DDS
-::    backend: generates DDS XML config, imports QoS profile XML into the
-::    model (this plugin's only WRITE path), publishes samples, listens for
+::    LoadQosXmlAction, DdsEngineListener — the RTI Connext DDS
+::    backend: generates DDS XML config, loads external QoS profiles,
+::    publishes samples, listens for
 ::    SendSignalAction activations during simulation, and (DDSTopicSubscriber/
 ::    DdsSubscriptionQueue) receives inbound DDS samples and queues them for
 ::    a Groovy polling script to inject back into a running simulation via
@@ -261,9 +261,11 @@ echo.
     src\com\rti\connext\cameo\dds\DdsSubscriptionQueue.java ^
     src\com\rti\connext\cameo\dds\DdsXmlGenerator.java ^
     src\com\rti\connext\cameo\dds\DdsRuntimeConfig.java ^
+    src\com\rti\connext\cameo\dds\CameoLog.java ^
+    src\com\rti\connext\cameo\dds\QosXmlFile.java ^
+    src\com\rti\connext\cameo\dds\LoadQosXmlAction.java ^
     src\com\rti\connext\cameo\dds\ElementPickerUtil.java ^
     src\com\rti\connext\cameo\dds\GenerateDdsXmlAction.java ^
-    src\com\rti\connext\cameo\dds\ImportQosProfileAction.java ^
     %SRC_VERSION_DIR%\com\rti\connext\cameo\dds\FumlValueBridge.java ^
     %SRC_VERSION_DIR%\com\rti\connext\cameo\dds\DdsEngineListener.java ^
     %SRC_VERSION_DIR%\com\rti\connext\cameo\dds\DdsInboundInjector.java

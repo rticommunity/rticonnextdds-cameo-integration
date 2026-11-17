@@ -27,8 +27,6 @@
  */
 package com.rti.connext.cameo.dds;
 
-import com.nomagic.magicdraw.core.Application;
-
 import com.rti.dds.domain.DomainParticipant;
 import com.rti.dds.dynamicdata.DynamicData;
 import com.rti.dds.dynamicdata.DynamicDataReader;
@@ -155,7 +153,7 @@ public final class DDSTopicSubscriber {
                         DynamicData sample = (DynamicData) dataSeq.get(i);
                         String json = sample.to_string(jsonFormat);
                         DdsSubscriptionQueue.push(queueKey, json);
-                        log("[RTI Connext] Received '" + topicName + "' for " + queueKey + ": " + json);
+                        CameoLog.trace(() -> "[RTI Connext] Received '" + topicName + "' for " + queueKey + ": " + json);
                     } catch (Exception ex) {
                         log("[RTI Connext] Failed to convert/queue a sample for topic '" + topicName + "': " + ex);
                     }
@@ -184,10 +182,6 @@ public final class DDSTopicSubscriber {
     }
 
     private static void log(String msg) {
-        try {
-            Application.getInstance().getGUILog().log(msg);
-        } catch (Exception ignored) {
-            System.out.println(msg);
-        }
+        CameoLog.log(msg);
     }
 }

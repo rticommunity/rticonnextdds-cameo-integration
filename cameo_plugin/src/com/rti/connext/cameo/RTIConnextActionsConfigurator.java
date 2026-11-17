@@ -19,17 +19,22 @@
  *     └─ RTI Connext DDS
  *           ├─ Scan Model for DDS Topics
  *           ├─ Generate DDS XML
- *           └─ Import QoS Profile
+ *           ├─ QoS (Load QoS XML..., Use Model QoS, Library > Profile)
+ *           └─ Verbose DDS Logging
  */
 package com.rti.connext.cameo;
 
 import com.nomagic.actions.AMConfigurator;
 import com.nomagic.actions.ActionsCategory;
 import com.nomagic.actions.ActionsManager;
+import com.nomagic.magicdraw.actions.MDStateAction;
 
 import com.rti.connext.cameo.core.ScanModelForTopicsAction;
+import com.rti.connext.cameo.dds.CameoLog;
 import com.rti.connext.cameo.dds.GenerateDdsXmlAction;
-import com.rti.connext.cameo.dds.ImportQosProfileAction;
+import com.rti.connext.cameo.dds.LoadQosXmlAction;
+
+import java.awt.event.ActionEvent;
 
 public class RTIConnextActionsConfigurator implements AMConfigurator {
 
@@ -39,7 +44,8 @@ public class RTIConnextActionsConfigurator implements AMConfigurator {
 
     private final ScanModelForTopicsAction scanModelAction = new ScanModelForTopicsAction();
     private final GenerateDdsXmlAction generateDdsXmlAction = new GenerateDdsXmlAction();
-    private final ImportQosProfileAction importQosProfileAction = new ImportQosProfileAction();
+    private final LoadQosXmlAction loadQosXmlAction = new LoadQosXmlAction();
+    private final VerboseDdsLoggingAction verboseDdsLoggingAction = new VerboseDdsLoggingAction();
 
     @Override
     public void configure(ActionsManager manager) {
@@ -59,7 +65,8 @@ public class RTIConnextActionsConfigurator implements AMConfigurator {
         rtiMenu.setNested(true);
         rtiMenu.addAction(scanModelAction);
         rtiMenu.addAction(generateDdsXmlAction);
-        rtiMenu.addAction(importQosProfileAction);
+        rtiMenu.addAction(loadQosXmlAction.getProfileMenu());
+        rtiMenu.addAction(verboseDdsLoggingAction);
 
         toolsMenu.addAction(rtiMenu);
     }
@@ -67,5 +74,24 @@ public class RTIConnextActionsConfigurator implements AMConfigurator {
     @Override
     public int getPriority() {
         return AMConfigurator.MEDIUM_PRIORITY;
+    }
+
+    private static final class VerboseDdsLoggingAction extends MDStateAction {
+
+        private VerboseDdsLoggingAction() {
+            super("RTI_VERBOSE_DDS_LOGGING", "Verbose DDS Logging", null, null);
+            setState(CameoLog.isVerbose());
+        }
+
+        @Override
+        public void actionPerformed(ActionEvent event) {
+            CameoLog.setVerbose(!CameoLog.isVerbose());
+            setState(CameoLog.isVerbose());
+        }
+
+        @Override
+        public void updateState() {
+            setState(CameoLog.isVerbose());
+        }
     }
 }

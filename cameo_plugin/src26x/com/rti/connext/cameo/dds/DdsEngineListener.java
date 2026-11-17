@@ -230,9 +230,9 @@ public class DdsEngineListener extends SimulationExecutionListener implements En
             }
             String json = builder.build();
 
-            log("[DDS Listener] Publishing " + pending.dataWriterName + ": " + json);
+            CameoLog.trace(() -> "[DDS Listener] Publishing " + pending.dataWriterName + ": " + json);
             DDSTopicPublisher.publishOnce(pending.participantConfigName, pending.dataWriterName, json);
-            log("[DDS Listener] Published to " + pending.dataWriterName + ".");
+            CameoLog.trace(() -> "[DDS Listener] Published to " + pending.dataWriterName + ".");
         } catch (Exception ex) {
             log("[DDS Listener] Publish failed for Signal '" + pending.signal.getName() + "' ("
                     + pending.participantConfigName + " / " + pending.dataWriterName + "): " + ex);
@@ -412,10 +412,6 @@ public class DdsEngineListener extends SimulationExecutionListener implements En
     }
 
     private static void log(String msg) {
-        try {
-            Application.getInstance().getGUILog().log(msg);
-        } catch (Exception ignored) {
-            System.out.println(msg);
-        }
+        CameoLog.log(msg);
     }
 }

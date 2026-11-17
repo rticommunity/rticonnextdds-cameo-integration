@@ -64,7 +64,7 @@ classes that touch CST's fUML runtime types, which moved package between
 | `DDSTopicSubscriber` | One reader per subscribing Block; converts received samples to JSON and queues them. |
 | `DdsSubscriptionQueue` | Thread hand-off between RTI's callback thread and the simulation, one queue per (Block, topic). |
 | `GenerateDdsXmlAction` | Menu action: export the XML to a file. |
-| `ImportQosProfileAction` | Menu action: create a `«DDS_QosProfile»` from an RTI QoS XML file (the plugin's only write to the model). |
+| `LoadQosXmlAction` | Owns the QoS submenu: load XML, select a library/profile, or return to model QoS without modifying the model. |
 | `ElementPickerUtil` | Element-selection dialog used by the menu actions. |
 | **`src24x` / `src26x`** | |
 | `DdsEngineListener` | CST listener: detects `«DDS_Topic»` sends and publishes them. |

@@ -191,7 +191,8 @@ public final class DdsInboundInjector {
                     pending = DdsSubscriptionQueue.pollNext(queueKey);
                 }
                 if (count > 1) {
-                    log("[DDS Inject] Drained " + count + " queued '" + queueKey + "' messages this cycle.");
+                    int drainedCount = count;
+                    CameoLog.trace(() -> "[DDS Inject] Drained " + drainedCount + " queued '" + queueKey + "' messages this cycle.");
                 }
             }
         }
@@ -227,7 +228,7 @@ public final class DdsInboundInjector {
             }
             try {
                 alh.sendSignal(signalInstance, target, portName);
-                log("[DDS Inject] Injected '" + topic.topicName + "' into '" + blockName + "' via port '" + portName + "'.");
+                CameoLog.trace(() -> "[DDS Inject] Injected '" + topic.topicName + "' into '" + blockName + "' via port '" + portName + "'.");
             } catch (Exception ex) {
                 log("[DDS Inject] ERROR: sending '" + topic.topicName + "' via port '" + portName
                         + "' failed -- is the poll script running on the Block that owns this Port? " + ex);
@@ -374,10 +375,6 @@ public final class DdsInboundInjector {
     }
 
     private static void log(String msg) {
-        try {
-            Application.getInstance().getGUILog().log(msg);
-        } catch (Exception ignored) {
-            System.out.println(msg);
-        }
+        CameoLog.log(msg);
     }
 }
