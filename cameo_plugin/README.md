@@ -3,7 +3,7 @@
 Makes a running SysML simulation a live node on an RTI Connext DDS bus:
 
 - **Outbound:** when the model sends a `«DDS_Topic»` Signal, the plugin
-  publishes it as a real DDS sample.
+  writes its payload directly to DDS from the simulation event callback.
 - **Inbound:** DDS samples from other applications are injected into the
   running simulation as Signals, through the model's own ports and connectors.
 - **Configuration:** DDS types, topics and participants are generated from
@@ -219,8 +219,23 @@ The Groovy bodies of the harness's two Opaque Behaviors are kept in
 [`RegisterDdsEngineListener.groovy`](groovy/RegisterDdsEngineListener.groovy),
 `poll_dds_subscription_inject` ←
 [`PollDdsSubscriptionAndInject.groovy`](groovy/PollDdsSubscriptionAndInject.groovy).
-They are already in `DDS_Profile.mdzip`; update them there whenever these
-files change.
+The existing two embedded behaviors remain compatible: no new Groovy behavior,
+state-machine change, or edit to `DDS_Profile.mdzip` is required for direct DDS
+polling. The Java plugin implements the change behind their existing calls.
+
+### Runtime data flow
+
+Outbound publication remains automatic. A `SendSignalAction` activation records
+the Signal identity and writer routing; the subsequent Signal callback reads
+the actual payload and calls DDS `write()` immediately. This bookkeeping
+contains no sample data. Incoming injected Signals without a matching outgoing
+action are not republished. Reliable writes may block according to their QoS.
+
+Inbound polling now calls DDS `take()` directly on the simulation thread.
+There is no intermediate sample queue or data-available listener. Set reader
+history depth and resource limits to retain the expected burst between polls,
+or shorten `ddsPollingPeriodMs`. A default KEEP_LAST depth of 1 can discard
+earlier samples for the same DDS instance before the next poll.
 
 ### 5. Configure the Simulation (optional)
 
@@ -333,7 +348,35 @@ schema URL. `NDDSHOME` must point to a readable Connext installation.
 | `nothing is connected to 'Block.port'` | Connect `dds-bus-listener` to the service's subscribing port in the Test Context's IBD (step 4). |
 | `Incompatible Port directions` on the sender connector | Delete the connector, keeping both ports, then redraw it **starting at `dds-bus-sender` and finishing at the publishing port on `SYSTEM_UNDER_TEST`** (for example, `Circle` in `shape_demo`). Keep the publishing Flow Property set to `out` and rerun validation. |
 | Another application doesn't receive a topic | Its type name must match the model's: RTI's discovery log shows `type names for topic 'X' do not match`. |
-| Two samples sent back to back, only one arrives | Topics without a DDS key keep only the latest sample by default. Use a QoS profile with a `history_depth`, marked `is_default`. |
+| Two samples sent back to back, only one arrives | DDS history retains samples until polling. Increase reader history/resource limits for the expected burst or shorten the poll interval. History is per DDS instance (key). |
+| Send Signal Action executes but nothing is published | Check that the Signal has `«DDS_Topic»`, a populated `data` payload, and a publishing Block/port in the scan. Verify that the startup behavior registered the listener. |
+
+---
+
+## Direct DDS I/O regression test
+
+After building for 2024x, run from `cameo_plugin` in PowerShell with
+`CAMEO_HOME`, `NDDSHOME`, `RTI_LICENSE_FILE` and RTI's native-library `PATH`
+configured as for the build:
+
+```powershell
+$cp = "build\2024x\classes;build\2024x\nddsjava.jar;$env:CAMEO_HOME\lib\*"
+javac --release 17 -encoding UTF-8 -classpath $cp -d build\direct-io-tests tests\DirectDdsIoTest.java
+if ($LASTEXITCODE -ne 0) { throw "Test compilation failed" }
+java -classpath "build\direct-io-tests;$cp" com.rti.connext.cameo.dds.DirectDdsIoTest
+if ($LASTEXITCODE -ne 0) { throw "Direct DDS I/O test failed" }
+```
+
+The test uses real Connext entities, shared-memory transport only, no discovery
+peers, and a unique topic. A test-only console logger replaces GUI logging;
+it is not packaged into the plugin. Cases cover batch delivery, independent
+readers, same-thread consumption, empty polls, loan return after a consumer
+exception, invalid-data filtering and shutdown/recreation.
+
+This does not exercise CST's live payload serialization or model port delivery.
+After installing, run the existing model, send a DDS-topic Signal, and verify
+publication and reception/injection. The two embedded Groovy behaviors do not
+need modification for this change.
 
 ---
 

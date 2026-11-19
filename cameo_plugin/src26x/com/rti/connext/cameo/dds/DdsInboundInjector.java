@@ -28,8 +28,7 @@
  * harness port may be untyped and named anything.
  *
  * One path per subscribing Block. Each subscribing Block has its own
- * DataReader (in its own participant) feeding its own queue
- * (DdsSubscriptionQueue.key(block, topic)), injected only through the ports
+ * DataReader (in its own participant), polled directly and injected through the ports
  * connected to that Block — so two modeled Blocks receiving the same topic
  * each get exactly one copy, like two separate DDS applications would.
  *
@@ -125,8 +124,7 @@ public final class DdsInboundInjector {
      * Idempotent (DDSTopicSubscriber.subscribeOnce()), and called on every
      * poll cycle on purpose: the registration script's own short-lived
      * execution tears subscriptions down right after creating them, and the
-     * next cycle restores them. Doesn't touch queued samples; see
-     * resetForNewRun().
+     * next cycle restores them. Samples remain in DDS history until polled.
      */
     public static void subscribeAll() {
         TopicModel model = getOrScanTopicModel();
@@ -138,8 +136,7 @@ public final class DdsInboundInjector {
                 String participantConfigName = "DomainParticipantLibrary::" + blockName;
                 String dataReaderName = "Subscriber::" + topic.topicName + "Reader";
                 try {
-                    DDSTopicSubscriber.subscribeOnce(participantConfigName, dataReaderName, topic.topicName,
-                            DdsSubscriptionQueue.key(blockName, topic.topicName));
+                    DDSTopicSubscriber.subscribeOnce(participantConfigName, dataReaderName);
                 } catch (Exception ex) {
                     log("[DDS Inject] ERROR: subscribeOnce() failed for topic '" + topic.topicName
                             + "' (Block '" + blockName + "') -- " + ex);
@@ -149,25 +146,17 @@ public final class DdsInboundInjector {
     }
 
     /**
-     * Discards samples queued before this run (see
-     * DdsSubscriptionQueue.clear()). Call once, from the registration script —
-     * not from the poll script, which would drop samples still waiting to be
-     * injected.
+     * Deletes previous-run DDS entities and their reader history. Call once at
+     * startup, never from the repeating poll behavior.
      */
     public static void resetForNewRun() {
-        TopicModel model = getOrScanTopicModel();
-        for (TopicModel.Topic topic : model.topics.values()) {
-            for (String blockName : topic.subscriberPorts.keySet()) {
-                if (!inScope(blockName)) {
-                    continue;
-                }
-                DdsSubscriptionQueue.clear(DdsSubscriptionQueue.key(blockName, topic.topicName));
-            }
-        }
+        DDSTopicSubscriber.shutdown();
+        DDSTopicPublisher.shutdown();
+        shutdown();
     }
 
     /**
-     * Drains every in-scope queue and injects each sample as a Signal sent
+     * Takes available samples from every in-scope reader and injects each as a Signal sent
      * from {@code target} (the harness object). See the class comment for why
      * {@code alh} must be the caller's own instance.
      */
@@ -182,24 +171,20 @@ public final class DdsInboundInjector {
                 if (!inScope(blockName)) {
                     continue;
                 }
-                String queueKey = DdsSubscriptionQueue.key(blockName, topic.topicName);
-                DdsSubscriptionQueue.PendingMessage pending = DdsSubscriptionQueue.pollNext(queueKey);
-                int count = 0;
-                while (pending != null) {
-                    count++;
-                    injectOne(alh, target, model, topic, blockName, pending);
-                    pending = DdsSubscriptionQueue.pollNext(queueKey);
-                }
-                if (count > 1) {
-                    int drainedCount = count;
-                    CameoLog.trace(() -> "[DDS Inject] Drained " + drainedCount + " queued '" + queueKey + "' messages this cycle.");
+                try {
+                    DDSTopicSubscriber.poll("DomainParticipantLibrary::" + blockName,
+                            "Subscriber::" + topic.topicName + "Reader",
+                            json -> injectOne(alh, target, model, topic, blockName, json));
+                } catch (Exception ex) {
+                    log("[DDS Inject] ERROR: polling topic '" + topic.topicName
+                            + "' for Block '" + blockName + "' failed -- " + ex);
                 }
             }
         }
     }
 
     private static void injectOne(ALH alh, Object_ target, TopicModel model, TopicModel.Topic topic,
-                                   String blockName, DdsSubscriptionQueue.PendingMessage pending) {
+                                   String blockName, String jsonPayload) {
         Set<String> ports = topic.injectionPorts.get(blockName);
         if (ports == null || ports.isEmpty()) {
             log("[DDS Inject] ERROR: nothing is connected to '" + blockName + "." + topic.subscriberPorts.get(blockName)
@@ -215,9 +200,9 @@ public final class DdsInboundInjector {
 
         JsonObject json;
         try {
-            json = JsonParser.parseString(pending.jsonPayload).getAsJsonObject();
+            json = JsonParser.parseString(jsonPayload).getAsJsonObject();
         } catch (Exception ex) {
-            log("[DDS Inject] ERROR: failed to parse queued JSON payload for '" + topic.topicName + "' -- " + ex);
+            log("[DDS Inject] ERROR: failed to parse DDS JSON payload for '" + topic.topicName + "' -- " + ex);
             return;
         }
 

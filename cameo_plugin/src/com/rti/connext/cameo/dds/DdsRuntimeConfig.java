@@ -79,9 +79,10 @@ public final class DdsRuntimeConfig {
     }
 
     /**
-     * Scans the project's «DDS_Domain», generates the DDS XML from it and
-     * makes it the config DDSTopicPublisher loads. Logs and returns false
-     * (leaving no generated config) if the model can't produce one.
+     * Generates DDS XML at simulation start using model types/topology and
+     * either model QoS or a loaded QoS XML profile.
+     *
+     * @return true on success; false after logging a preparation error
      */
     public static boolean prepare() {
         currentModel = null;
@@ -120,8 +121,10 @@ public final class DdsRuntimeConfig {
             QosXmlSelection selection = selectedQosXml;
             String xml;
             if (selection == null) {
+                // Use the model's default (or only) QoS profile, if available.
                 xml = DdsXmlGenerator.generate(model, domainId, chooseQosProfile(root));
             } else {
+                // External XML supplies QoS only; types and topology stay model-derived.
                 QosXmlFile qos = QosXmlFile.read(selection.file);
                 xml = qos.mergeInto(DdsXmlGenerator.generateWithExternalQos(model, domainId, selection.profileName),
                         selection.profileName);
@@ -136,6 +139,7 @@ public final class DdsRuntimeConfig {
         }
 
         currentModel = model;
+        // Loaded on first DDS use, unless the xmlConfig JVM property overrides it.
         DDSTopicPublisher.useGeneratedConfig(file);
         log("[RTI Connext] Generated DDS config from the model (domain '" + domain.getName()
                 + "', id " + domainId + "): " + file.getAbsolutePath());
