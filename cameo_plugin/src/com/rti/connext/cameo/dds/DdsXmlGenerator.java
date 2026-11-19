@@ -12,8 +12,8 @@
 
 /*
  * DdsXmlGenerator — turns a TopicModel into an RTI Connext DDS XML
- * Application Creation document (validated against RTI's
- * rti_dds_profiles.xsd, 7.5.0).
+ * Application Creation document using the rti_dds_profiles.xsd version
+ * recorded in NDDSHOME/rti_versions.xml.
  *
  * Emitted, in order:
  *   <types>                       enums first, then structs ordered so every
@@ -30,14 +30,17 @@
  *                                 "<Topic>Reader" entities in fixed
  *                                 "Publisher" / "Subscriber" entities.
  *
- * Pure string in, string out (no file I/O, no CAMEO dependency), so it can be
- * exercised with a hand-built TopicModel.
+ * Can be exercised with a hand-built TopicModel and a configured NDDSHOME.
  */
 package com.rti.connext.cameo.dds;
 
 import com.rti.connext.cameo.core.ModelTopicScanner;
 import com.rti.connext.cameo.core.TopicModel;
 
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.xpath.XPathFactory;
+import java.io.File;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -57,23 +60,65 @@ public final class DdsXmlGenerator {
 
     /** @param qosProfile the chosen «DDS_QosProfile» to emit as a <qos_library> block, or null to omit it entirely */
     public static String generate(TopicModel model, int domainId, ModelTopicScanner.QosProfileInfo qosProfile) {
+        String qosProfileRef = qosProfile != null
+                ? QOS_LIBRARY_NAME + "::" + qosProfile.profileName
+                : null;
+        return generate(model, domainId, qosProfile, qosProfileRef);
+    }
+
+    public static String generateWithExternalQos(TopicModel model, int domainId, String qosProfileRef) {
+        if (qosProfileRef == null || qosProfileRef.trim().isEmpty()) {
+            throw new IllegalArgumentException("An external QoS library and profile must be selected.");
+        }
+        return generate(model, domainId, null, qosProfileRef);
+    }
+
+    private static String generate(TopicModel model, int domainId,
+                                   ModelTopicScanner.QosProfileInfo qosProfile, String qosProfileRef) {
         List<TopicModel.StructType> orderedStructs = topologicallySortStructs(model);
+        String nddsHome = System.getenv("NDDSHOME");
+        if (nddsHome == null || nddsHome.trim().isEmpty()) {
+            throw new IllegalStateException("NDDSHOME must be set to determine the DDS XML schema version.");
+        }
+        String version = readConnextVersion(new File(nddsHome));
 
         StringBuilder xml = new StringBuilder();
         xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
         xml.append("<dds xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" ")
-           .append("xsi:noNamespaceSchemaLocation=\"http://community.rti.com/schema/7.5.0/rti_routing_service.xsd\" ")
-           .append("version=\"7.5.0\">\n");
+           .append("xsi:noNamespaceSchemaLocation=\"https://community.rti.com/schema/").append(version)
+           .append("/rti_dds_profiles.xsd\" ")
+           .append("version=\"").append(version).append("\">\n");
 
         appendTypes(xml, orderedStructs, model.enums);
         if (qosProfile != null) {
             appendQosLibrary(xml, qosProfile);
         }
+        boolean externalQos = qosProfile == null && qosProfileRef != null;
         appendDomainLibrary(xml, orderedStructs, model.topics, domainId);
-        appendDomainParticipantLibrary(xml, model.topics, qosProfile);
+        appendDomainParticipantLibrary(xml, model.topics, qosProfileRef, externalQos);
 
         xml.append("</dds>\n");
         return xml.toString();
+    }
+
+    static String readConnextVersion(File nddsHome) {
+        File metadata = new File(nddsHome, "rti_versions.xml");
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newDefaultInstance();
+            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+            var document = factory.newDocumentBuilder().parse(metadata);
+            String version = XPathFactory.newDefaultInstance().newXPath()
+                    .evaluate("/rti/host/base_version", document).trim();
+            if (!version.matches("[0-9]+\\.[0-9]+\\.[0-9]+")) {
+                throw new IllegalArgumentException("Missing or invalid Connext base_version: " + version);
+            }
+            return version;
+        } catch (Exception ex) {
+            throw new IllegalStateException("Cannot read Connext version from " + metadata + ": " + ex.getMessage(), ex);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -204,7 +249,7 @@ public final class DdsXmlGenerator {
 
     private static void appendDomainParticipantLibrary(StringBuilder xml,
                                                          Map<String, TopicModel.Topic> topics,
-                                                         ModelTopicScanner.QosProfileInfo qosProfile) {
+                                                         String qosProfileRef, boolean externalQos) {
         xml.append("    <domain_participant_library name=\"")
            .append(DOMAIN_PARTICIPANT_LIBRARY_NAME).append("\">\n");
 
@@ -214,33 +259,47 @@ public final class DdsXmlGenerator {
         // Without the reference they fall back to RTI's default KEEP_LAST
         // depth 1, and on a keyless topic a second sample written right
         // after the first overwrites it before any reader takes it.
-        String qosProfileRef = qosProfile != null
-                ? QOS_LIBRARY_NAME + "::" + qosProfile.profileName
-                : null;
-
         for (String blockName : collectParticipantBlockNames(topics)) {
             xml.append("      <domain_participant name=\"").append(escapeAttr(blockName))
                .append("\" domain_ref=\"").append(DOMAIN_LIBRARY_NAME).append("::")
                .append(DOMAIN_NAME).append("\">\n");
             if (qosProfileRef != null) {
                 xml.append("        <domain_participant_qos base_name=\"")
-                   .append(escapeAttr(qosProfileRef)).append("\">\n");
-                xml.append("          <participant_name>\n");
-                xml.append("            <name>").append(escapeAttr(blockName)).append("</name>\n");
-                xml.append("          </participant_name>\n");
-                xml.append("        </domain_participant_qos>\n");
+                   .append(escapeAttr(qosProfileRef)).append("\"");
+                if (externalQos) {
+                    xml.append("/>\n");
+                } else {
+                    xml.append(">\n");
+                    xml.append("          <participant_name>\n");
+                    xml.append("            <name>").append(escapeAttr(blockName)).append("</name>\n");
+                    xml.append("          </participant_name>\n");
+                    xml.append("        </domain_participant_qos>\n");
+                }
             }
 
             List<TopicModel.Topic> published = topicsWhere(topics, blockName, true);
             if (!published.isEmpty()) {
                 xml.append("        <publisher name=\"Publisher\">\n");
+                if (externalQos) {
+                    xml.append("          <publisher_qos base_name=\"").append(escapeAttr(qosProfileRef)).append("\">\n");
+                    xml.append("            <publisher_name><name>Publisher</name></publisher_name>\n");
+                    xml.append("          </publisher_qos>\n");
+                }
                 for (TopicModel.Topic topic : published) {
                     xml.append("          <data_writer name=\"").append(escapeAttr(topic.topicName))
                        .append("Writer\" topic_ref=\"").append(escapeAttr(topic.topicName)).append("\"");
                     if (qosProfileRef != null) {
                         xml.append(">\n");
                         xml.append("            <datawriter_qos base_name=\"")
-                           .append(escapeAttr(qosProfileRef)).append("\"/>\n");
+                                    .append(escapeAttr(qosProfileRef)).append("\"");
+                                if (externalQos) {
+                                     xml.append(">\n");
+                                     xml.append("              <publication_name><name>").append(escapeAttr(topic.topicName))
+                                         .append("Writer</name></publication_name>\n");
+                                     xml.append("            </datawriter_qos>\n");
+                                } else {
+                                     xml.append("/>\n");
+                                }
                         xml.append("          </data_writer>\n");
                     } else {
                         xml.append("/>\n");
@@ -252,13 +311,26 @@ public final class DdsXmlGenerator {
             List<TopicModel.Topic> subscribed = topicsWhere(topics, blockName, false);
             if (!subscribed.isEmpty()) {
                 xml.append("        <subscriber name=\"Subscriber\">\n");
+                if (externalQos) {
+                    xml.append("          <subscriber_qos base_name=\"").append(escapeAttr(qosProfileRef)).append("\">\n");
+                    xml.append("            <subscriber_name><name>Subscriber</name></subscriber_name>\n");
+                    xml.append("          </subscriber_qos>\n");
+                }
                 for (TopicModel.Topic topic : subscribed) {
                     xml.append("          <data_reader name=\"").append(escapeAttr(topic.topicName))
                        .append("Reader\" topic_ref=\"").append(escapeAttr(topic.topicName)).append("\"");
                     if (qosProfileRef != null) {
                         xml.append(">\n");
                         xml.append("            <datareader_qos base_name=\"")
-                           .append(escapeAttr(qosProfileRef)).append("\"/>\n");
+                                    .append(escapeAttr(qosProfileRef)).append("\"");
+                                if (externalQos) {
+                                     xml.append(">\n");
+                                     xml.append("              <subscription_name><name>").append(escapeAttr(topic.topicName))
+                                         .append("Reader</name></subscription_name>\n");
+                                     xml.append("            </datareader_qos>\n");
+                                } else {
+                                     xml.append("/>\n");
+                                }
                         xml.append("          </data_reader>\n");
                     } else {
                         xml.append("/>\n");

@@ -29,8 +29,8 @@
 ::                such as 2024x's bundled JDK 17 cannot read ("class file has
 ::                wrong version 65.0, should be 61.0" — confirmed live).
 ::
-:: The two versions differ only in src24x\ vs src26x\ (fUML runtime types
-:: moved package between CST versions) and the output folder.
+:: The two versions select their FumlValueBridge from src24x\ or src26x\
+:: (fUML runtime types moved package). All DDS runtime logic is shared in src\.
 ::
 :: Output (relative to this script)
 ::   build\<version>\nddsjava.jar         — copied from %NDDSHOME%\lib\java\
@@ -222,13 +222,11 @@ copy /Y "%NDDSJAVA_JAR%" %OUT%\nddsjava.jar >nul
 ::    ScanModelForTopicsAction, JsonPayloadBuilder — backend-agnostic SysML
 ::    model scanning, kept separate from any specific pub/sub backend) and
 ::    com\rti\connext\cameo\dds\*.java (DDSTopicPublisher, DDSTopicSubscriber,
-::    DdsSubscriptionQueue, DdsXmlGenerator, GenerateDdsXmlAction,
-::    ImportQosProfileAction, DdsEngineListener — the RTI Connext DDS
-::    backend: generates DDS XML config, imports QoS profile XML into the
-::    model (this plugin's only WRITE path), publishes samples, listens for
-::    SendSignalAction activations during simulation, and (DDSTopicSubscriber/
-::    DdsSubscriptionQueue) receives inbound DDS samples and queues them for
-::    a Groovy polling script to inject back into a running simulation via
+::    DdsXmlGenerator, GenerateDdsXmlAction,
+::    LoadQosXmlAction, DdsEngineListener — the RTI Connext DDS
+::    backend: generates DDS XML config, loads external QoS profiles,
+::    publishes samples on outgoing DDS-topic events, and polls DDS readers from
+::    a Groovy behavior to inject samples into a running simulation via
 ::    ALH.sendSignal() — see groovy/PollDdsSubscriptionAndInject.groovy).
 ::    If you add more source files later, they must
 ::    be added here too, or switch this to a recursive dir /s /b *.java loop
@@ -258,15 +256,16 @@ echo.
     src\com\rti\connext\cameo\core\SimulationScope.java ^
     src\com\rti\connext\cameo\dds\DDSTopicPublisher.java ^
     src\com\rti\connext\cameo\dds\DDSTopicSubscriber.java ^
-    src\com\rti\connext\cameo\dds\DdsSubscriptionQueue.java ^
+    src\com\rti\connext\cameo\dds\DdsEngineListener.java ^
+    src\com\rti\connext\cameo\dds\DdsInboundInjector.java ^
     src\com\rti\connext\cameo\dds\DdsXmlGenerator.java ^
     src\com\rti\connext\cameo\dds\DdsRuntimeConfig.java ^
+    src\com\rti\connext\cameo\dds\CameoLog.java ^
+    src\com\rti\connext\cameo\dds\QosXmlFile.java ^
+    src\com\rti\connext\cameo\dds\LoadQosXmlAction.java ^
     src\com\rti\connext\cameo\dds\ElementPickerUtil.java ^
     src\com\rti\connext\cameo\dds\GenerateDdsXmlAction.java ^
-    src\com\rti\connext\cameo\dds\ImportQosProfileAction.java ^
-    %SRC_VERSION_DIR%\com\rti\connext\cameo\dds\FumlValueBridge.java ^
-    %SRC_VERSION_DIR%\com\rti\connext\cameo\dds\DdsEngineListener.java ^
-    %SRC_VERSION_DIR%\com\rti\connext\cameo\dds\DdsInboundInjector.java
+    %SRC_VERSION_DIR%\com\rti\connext\cameo\dds\FumlValueBridge.java
 
 if errorlevel 1 (
     echo.

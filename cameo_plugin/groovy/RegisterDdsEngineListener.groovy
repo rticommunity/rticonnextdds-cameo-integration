@@ -13,18 +13,13 @@
 // Paste into a Groovy Opaque Behavior that fires EXACTLY ONCE at
 // simulation start (e.g. the top-level Block's initial state entry
 // action). Do NOT attach to anything that can fire more than once —
-// each run registers another listener, so duplicate registrations mean
-// duplicate DDS publishes.
+// each run registers another listener, causing duplicate DDS publications.
 //
 // Requires _session_ (a SimulationSession), auto-injected by CST into
 // the Opaque Behavior's Groovy binding.
 //
-// Registers DdsEngineListener on both EngineListener (generic
-// ActivityNode activations — doesn't fire for SendSignalAction) and
-// SimulationExecutionListener (elementActivated()/eventTriggered() do
-// fire for SendSignalAction — this is the path that actually reads field
-// values via FumlValueBridge/ALH and publishes to DDS). See
-// DdsEngineListener.java for the rest of that listener's logic.
+// Registers DdsEngineListener for automatic publication on outgoing DDS-topic
+// Signal events and cleanup when simulation execution ends.
 //
 // Before that, generates the DDS XML config from the model for this run
 // (DdsRuntimeConfig). After it, limits inbound DDS to the Blocks in the
@@ -39,7 +34,9 @@ def guiLog = com.nomagic.magicdraw.core.Application.getInstance().getGUILog()
 
 // Generate the DDS XML config from the model for this run (see
 // DdsRuntimeConfig) -- before anything creates a DDS participant.
-com.rti.connext.cameo.dds.DdsRuntimeConfig.prepare()
+if (!com.rti.connext.cameo.dds.DdsRuntimeConfig.prepare()) {
+    throw new IllegalStateException("DDS configuration preparation failed; see the CAMEO log.")
+}
 
 try {
     def engine = _session_.getEngine()
@@ -53,20 +50,18 @@ try {
         def listener = new com.rti.connext.cameo.dds.DdsEngineListener(_session_)
         engine.addEngineListener(listener)
         execution.addSimulationListener(listener)
-        guiLog.log("[DDS Listener] DdsEngineListener registered (EngineListener + SimulationExecutionListener) on the running simulation.")
+        guiLog.log("[DDS Listener] DdsEngineListener registered for automatic DDS publication and simulation cleanup.")
     }
 } catch (Exception e) {
     guiLog.log("[DDS Listener] ERROR: failed to register DdsEngineListener -- " + e)
 }
 
 try {
-    // resetForNewRun() FIRST -- discards any backlog left over from before
-    // this run started (DDS reception has no simulation-run scoping of its
-    // own). Must only happen here, once, not in the repeating poll script.
+    // Reset DDS entities once per run, never in the repeating poll script.
     com.rti.connext.cameo.dds.DdsInboundInjector.setSimulationScope(ALH.getContext())
     com.rti.connext.cameo.dds.DdsInboundInjector.resetForNewRun()
     com.rti.connext.cameo.dds.DdsInboundInjector.subscribeAll()
-    guiLog.log("[DDS Listener] Inbound subscriptions started for every «DDS_Topic» the model wires up (receive-and-queue here; PollDdsSubscriptionAndInject.groovy does the actual injection).")
+    guiLog.log("[DDS Listener] Inbound readers ready for direct polling by PollDdsSubscriptionAndInject.groovy.")
 } catch (Exception e) {
     guiLog.log("[DDS Listener] ERROR: failed to start inbound subscriptions -- " + e)
 }

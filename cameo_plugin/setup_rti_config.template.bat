@@ -11,8 +11,8 @@
 ::
 :: ============================================================
 :: TEMPLATE: copy this file to setup_rti_config.bat (git-ignored)
-:: and edit the paths under "Core environment variables" to match
-:: your own RTI Connext / CAMEO installs and license location.
+:: Set NDDSHOME in the environment before running this script.
+:: RTI_LICENSE_FILE is always set to NDDSHOME\rti_license.dat.
 :: ============================================================
 :: RTI Connext DDS + CAMEO environment setup, for 2024x or 2026x.
 ::
@@ -20,38 +20,27 @@
 ::   setup_rti_config.bat 2024x | 2026x
 ::   Double-clicking it (no argument) asks which version.
 ::
-:: Opens a command window with NDDSHOME, CAMEO_HOME, RTIJDKHOME,
+:: Opens a command window with NDDSHOME, CAMEO_HOME,
 :: RTI_LICENSE_FILE, PATH and CAMEO_VERSION set, so build.bat and
 :: install.bat can then be run there without a version argument.
 ::
 :: NOTE (2026x): its own jre\ ships java.exe but NOT javac.exe, and
 :: its API jars are Java 21 bytecode (class file version 65), which
 :: 2024x's bundled JDK 17 cannot read ("class file has wrong version
-:: 65.0, should be 61.0" -- confirmed live). RTIJDKHOME must point
-:: at a real JDK 21+ install for 2026x; it does not need to be
-:: bundled with CAMEO.
+:: 65.0, should be 61.0" -- confirmed live). javac must be available
+:: on PATH: version 17+ for 2024x or 21+ for 2026x.
 ::
 :: Self-elevates to Administrator (install.bat writes under
 :: Program Files).
 :: ============================================================
 
 :: --- Which CAMEO version (asked for when double-clicked) ---
-set "CAMEO_VERSION=%~1"
+if not "%~1"=="" set "CAMEO_VERSION=%~1"
 if "%CAMEO_VERSION%"=="" set /p "CAMEO_VERSION=CAMEO version (2024x or 2026x): "
 if /i not "%CAMEO_VERSION%"=="2024x" if /i not "%CAMEO_VERSION%"=="2026x" (
     echo ERROR: unknown CAMEO version "%CAMEO_VERSION%" -- expected 2024x or 2026x.
     pause
     exit /b 1
-)
-
-:: --- Self-elevate if not already running as admin ---
-:: The version is passed on explicitly: the elevated relaunch is a new
-:: process and would otherwise start without it.
-net session >nul 2>&1
-if %errorlevel% neq 0 (
-    echo Requesting administrator privileges...
-    powershell -Command "Start-Process '%~f0' -ArgumentList '%CAMEO_VERSION%' -Verb RunAs"
-    exit /b
 )
 
 :: Elevated relaunch can land in a different working directory (often
@@ -64,42 +53,84 @@ echo  Setting up RTI Connext DDS + CAMEO %CAMEO_VERSION% environment
 echo ============================================================
 
 :: --- Core environment variables ---
-set NDDSHOME=C:\Program Files\rti_connext_dds-7.5.0
-set RTI_LICENSE_FILE=%USERPROFILE%\Documents\rti_workspace\7.5.0\rti_license.dat
-if /i "%CAMEO_VERSION%"=="2024x" (
-    set "CAMEO_HOME=C:\Program Files\Magic Systems of Systems Architect"
-    rem 2024x's bundled jre\ is a JDK 17 and includes javac.
-    set "RTIJDKHOME=C:\Program Files\Magic Systems of Systems Architect\jre"
-) else (
-    set "CAMEO_HOME=C:\Program Files\Magic Cyber Systems Engineer"
-    rem 2026x needs a separate JDK 21+ (see the NOTE above).
-    set "RTIJDKHOME=C:\Program Files\Semeru\jdk-21.0.7.6-openj9"
+if not defined NDDSHOME (
+    echo ERROR: NDDSHOME is not set. Set it to your RTI Connext DDS installation directory.
+    goto setup_failed
 )
-
-:: --- PATH additions (native libs + RTI bin tools) ---
-set PATH=%NDDSHOME%\lib\x64Win64VS2017;%NDDSHOME%\bin;%PATH%
+set "RTI_LICENSE_FILE=%NDDSHOME%\rti_license.dat"
+if /i "%CAMEO_VERSION%"=="2024x" (
+    if not defined CAMEO_HOME set "CAMEO_HOME=C:\Program Files\Magic Systems of Systems Architect"
+) else (
+    if not defined CAMEO_HOME set "CAMEO_HOME=C:\Program Files\Magic Cyber Systems Engineer"
+)
 
 :: --- Print what got set, for sanity checking ---
 echo CAMEO_VERSION   = %CAMEO_VERSION%
 echo NDDSHOME        = %NDDSHOME%
 echo CAMEO_HOME      = %CAMEO_HOME%
-echo RTIJDKHOME      = %RTIJDKHOME%
 echo RTI_LICENSE_FILE= %RTI_LICENSE_FILE%
 echo.
 
 :: --- Sanity checks ---
-if not exist "%RTIJDKHOME%\bin\javac.exe" (
-    echo WARNING: javac.exe not found at %RTIJDKHOME%\bin - JDK path may be wrong.
+set "RTI_SETUP_FAILED="
+where javac >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: javac is not available. Add a JDK bin directory to PATH.
+    set "RTI_SETUP_FAILED=1"
 )
 if not exist "%CAMEO_HOME%\lib" (
-    echo WARNING: CAMEO_HOME does not look like a valid install - %CAMEO_HOME%\lib not found.
+    echo ERROR: CAMEO library directory "%CAMEO_HOME%\lib" not found. Set CAMEO_HOME.
+    set "RTI_SETUP_FAILED=1"
 )
 if not exist "%RTI_LICENSE_FILE%" (
-    echo WARNING: License file not found at %RTI_LICENSE_FILE%
+    echo ERROR: License file "%RTI_LICENSE_FILE%" not found. Place rti_license.dat in NDDSHOME.
+    set "RTI_SETUP_FAILED=1"
 )
 if not exist "%NDDSHOME%\lib\x64Win64VS2017\nddsjava.dll" (
-    echo WARNING: Native DDS libraries not found under %NDDSHOME%\lib\x64Win64VS2017
+    echo ERROR: Native DDS library "%NDDSHOME%\lib\x64Win64VS2017\nddsjava.dll" not found.
+    set "RTI_SETUP_FAILED=1"
 )
+if not exist "%NDDSHOME%\lib\java\nddsjava.jar" (
+    echo ERROR: DDS Java library "%NDDSHOME%\lib\java\nddsjava.jar" not found.
+    set "RTI_SETUP_FAILED=1"
+)
+for %%F in (build.bat install.bat run_cameo.bat) do if not exist "%~dp0%%F" (
+    echo ERROR: Required script "%~dp0%%F" is missing from this checkout.
+    set "RTI_SETUP_FAILED=1"
+)
+if defined RTI_SETUP_FAILED goto setup_failed
+
+set "RTI_JAVA_MAJOR="
+for /f "tokens=2 delims=. " %%V in ('javac -version 2^>^&1') do set "RTI_JAVA_MAJOR=%%V"
+echo(%RTI_JAVA_MAJOR%| findstr /r /x "[0-9][0-9]*" >nul
+if errorlevel 1 (
+    echo ERROR: Could not determine the JDK version. Check javac on PATH.
+    goto setup_failed
+)
+set "RTI_JAVA_MINIMUM=17"
+if /i "%CAMEO_VERSION%"=="2026x" set "RTI_JAVA_MINIMUM=21"
+if %RTI_JAVA_MAJOR% lss %RTI_JAVA_MINIMUM% (
+    echo ERROR: CAMEO %CAMEO_VERSION% requires JDK %RTI_JAVA_MINIMUM% or newer; found %RTI_JAVA_MAJOR%. Update javac on PATH.
+    goto setup_failed
+)
+
+:: --- Self-elevate if not already running as admin ---
+:: Pass process-local configuration explicitly to the elevated process.
+:: Keep its command window open even if setup exits with an error.
+set "RTI_SETUP_SCRIPT=%~f0"
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo Requesting administrator privileges...
+    powershell -NoProfile -Command "$bootstrap = ''; foreach ($name in 'NDDSHOME','CAMEO_HOME','PATH','RTI_LICENSE_FILE','CAMEO_VERSION','RTI_SETUP_SCRIPT') { $value = [Environment]::GetEnvironmentVariable($name); if ($null -ne $value) { $bootstrap += '$env:' + $name + ' = ''' + $value.Replace('''','''''') + '''; ' } }; $bootstrap += '$arguments = ''call '' + [char]34 + $env:RTI_SETUP_SCRIPT + [char]34 + '' '' + $env:CAMEO_VERSION; Start-Process -FilePath $env:ComSpec -ArgumentList ''/d'',''/k'',$arguments -WindowStyle Normal -ErrorAction Stop'; $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($bootstrap)); Start-Process powershell.exe -ArgumentList '-NoProfile','-EncodedCommand',$encoded -WindowStyle Hidden -Verb RunAs -ErrorAction Stop"
+    if errorlevel 1 (
+        echo ERROR: Could not open the administrator command window.
+        goto setup_failed
+    )
+    exit /b
+)
+
+:: --- PATH additions (native libs + RTI bin tools) ---
+set "PATH=%NDDSHOME%\lib\x64Win64VS2017;%NDDSHOME%\bin;%PATH%"
 
 echo.
 echo Environment setup complete. In this window you can now run:
@@ -109,3 +140,10 @@ echo   run_cameo.bat
 echo.
 
 cmd /k
+exit /b
+
+:setup_failed
+echo.
+echo Setup failed. Correct the errors above and run this script again.
+pause
+exit /b 1

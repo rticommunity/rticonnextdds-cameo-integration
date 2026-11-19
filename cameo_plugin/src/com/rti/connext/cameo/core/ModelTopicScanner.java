@@ -59,8 +59,7 @@ import java.util.Set;
 public final class ModelTopicScanner {
 
     private static final String BLOCK_STEREOTYPE = "Block";
-    // DDS_Profile stereotypes and tags. Public where ImportQosProfileAction
-    // (which creates QoS elements) needs the same names.
+    // DDS_Profile stereotypes and tags.
     public static final String DDS_PROFILE_NAME = "DDS_Profile";
     private static final String TOPIC_STEREOTYPE_NAME = "DDS_Topic";
     private static final String DOMAIN_STEREOTYPE_NAME = "DDS_Domain";
@@ -70,8 +69,7 @@ public final class ModelTopicScanner {
     private static final String MEMBER_STEREOTYPE_NAME = "DDS_Member";
     private static final String MEMBER_KEY_TAG_NAME = "key";      // Boolean
     private static final String MEMBER_MAX_TAG_NAME = "max";      // Integer, optional — string length bound
-    // «DDS_QosProfile» elements are Classes (as ImportQosProfileAction
-    // creates them), usually inside a «DDS_QosLibrary» package.
+    // «DDS_QosProfile» elements are Classes, usually inside a «DDS_QosLibrary» package.
     public static final String QOS_LIBRARY_STEREOTYPE_NAME = "DDS_QosLibrary";
     public static final String QOS_PROFILE_STEREOTYPE_NAME = "DDS_QosProfile";
     public static final String QOS_PARTICIPANT_NAME_TAG = "participant_name"; // String
@@ -199,9 +197,7 @@ public final class ModelTopicScanner {
     }
 
     // -------------------------------------------------------------------------
-    // DDS_QosLibrary / DDS_QosProfile discovery (read-only — see
-    // ImportQosProfileAction for the write-path counterpart that creates
-    // these elements)
+    // DDS_QosLibrary / DDS_QosProfile discovery (read-only)
     // -------------------------------------------------------------------------
 
     /** Finds every Package stereotyped «DDS_QosLibrary» (scoped to DDS_Profile), anywhere under root. */
@@ -286,8 +282,7 @@ public final class ModelTopicScanner {
     }
 
     /**
-     * Resolves a stereotype by profile and name, the same way the scan does
-     * (used by ImportQosProfileAction before applying stereotypes).
+    * Resolves a stereotype by profile and name, the same way the scan does.
      */
     public static Stereotype resolveStereotype(Element contextElement, String profileName, String stereotypeName) {
         return lookupStereotype(contextElement, profileName, stereotypeName);

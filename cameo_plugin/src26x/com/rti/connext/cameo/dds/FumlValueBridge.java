@@ -31,6 +31,7 @@
 package com.rti.connext.cameo.dds;
 
 import com.nomagic.magicdraw.simulation.execution.session.SimulationSession;
+import com.nomagic.magicdraw.simulation.execution.SimulationExecutionListener;
 import com.nomagic.magicdraw.simulation.utils.ALH;
 import com.nomagic.uml2.ext.jmi.helpers.StereotypesHelper;
 import com.nomagic.uml2.ext.magicdraw.classes.mdkernel.Class;
@@ -44,6 +45,16 @@ import com.nomagic.magicdraw.simulation.fuml.behaviors.communications.SignalInst
 final class FumlValueBridge {
 
     private FumlValueBridge() {
+    }
+
+    abstract static class SignalListener extends SimulationExecutionListener {
+        @Override
+        @SuppressWarnings("deprecation")
+        public void eventTriggered(SignalInstance signalInstance) {
+            onSignalTriggered(signalInstance);
+        }
+
+        protected abstract void onSignalTriggered(Object signalInstance);
     }
 
     /**
@@ -86,11 +97,44 @@ final class FumlValueBridge {
      */
     @SuppressWarnings("deprecation")
     static Object getFieldValue(SimulationSession session, Object structuredValueObj, String fieldName) {
+        ALH alh = new ALH(session);
+        return alh.getValue(requireStructuredValue(structuredValueObj), fieldName);
+    }
+
+    @SuppressWarnings("deprecation")
+    static void setFieldValue(ALH alh, Object owner, String fieldName, Object value) {
+        alh.setValue(requireStructuredValue(owner), fieldName, value);
+    }
+
+    @SuppressWarnings("deprecation")
+    private static StructuredValue requireStructuredValue(Object structuredValueObj) {
         if (!(structuredValueObj instanceof StructuredValue)) {
             throw new IllegalArgumentException("Not a StructuredValue: "
                     + (structuredValueObj == null ? "null" : structuredValueObj.getClass().getName()));
         }
-        ALH alh = new ALH(session);
-        return alh.getValue((StructuredValue) structuredValueObj, fieldName);
+        return (StructuredValue) structuredValueObj;
+    }
+
+    @SuppressWarnings("deprecation")
+    static boolean isRuntimeObject(Object value) {
+        return value instanceof Object_;
+    }
+
+    @SuppressWarnings("deprecation")
+    static Object createObject(ALH alh, String typeName) {
+        return alh.createObject(typeName);
+    }
+
+    @SuppressWarnings("deprecation")
+    static Object createSignal(ALH alh, String topicName) {
+        return alh.createSignal(topicName);
+    }
+
+    @SuppressWarnings("deprecation")
+    static void sendSignal(ALH alh, Object signal, Object target, String portName) {
+        if (!(signal instanceof SignalInstance) || !(target instanceof Object_)) {
+            throw new IllegalArgumentException("A simulation Signal and target object are required.");
+        }
+        alh.sendSignal((SignalInstance) signal, (Object_) target, portName);
     }
 }

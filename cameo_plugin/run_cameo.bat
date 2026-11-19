@@ -17,8 +17,8 @@
 :: executables:
 ::   2024x (Magic Systems of Systems Architect) -> bin\msosa.exe
 ::   2026x (Magic Cyber Systems Engineer)       -> bin\mcse.exe
-:: confirmed against both real installs on this machine -- this
-:: script tries both names under %CAMEO_HOME%\bin and launches
+::   Cameo Systems Modeler                     -> bin\csm.exe
+:: This script tries these names under %CAMEO_HOME%\bin and launches
 :: whichever exists.
 :: ============================================================
 setlocal enabledelayedexpansion
@@ -48,11 +48,12 @@ if defined NDDSHOME (
 )
 
 set "CAMEO_EXE="
+if exist "%CAMEO_HOME%\bin\csm.exe" set "CAMEO_EXE=%CAMEO_HOME%\bin\csm.exe"
 if exist "%CAMEO_HOME%\bin\msosa.exe" set "CAMEO_EXE=%CAMEO_HOME%\bin\msosa.exe"
 if exist "%CAMEO_HOME%\bin\mcse.exe" set "CAMEO_EXE=%CAMEO_HOME%\bin\mcse.exe"
 
 if "%CAMEO_EXE%"=="" (
-    echo ERROR: Neither bin\msosa.exe nor bin\mcse.exe found under
+    echo ERROR: No bin\csm.exe, bin\msosa.exe, or bin\mcse.exe found under
     echo        CAMEO_HOME=%CAMEO_HOME%
     echo        If this is a different CAMEO edition, add its executable name
     echo        to run_cameo.bat.

@@ -20,7 +20,6 @@
  */
 package com.rti.connext.cameo.dds;
 
-import com.nomagic.magicdraw.core.Application;
 
 import com.rti.dds.domain.DomainParticipant;
 import com.rti.dds.domain.DomainParticipantFactory;
@@ -182,10 +181,10 @@ public final class DDSTopicPublisher {
      * Makes {@code file} — just generated from the model by DdsRuntimeConfig
      * — the config for this simulation run, and has RTI re-read its profiles
      * so a model changed since the previous run takes effect without
-     * restarting CAMEO.
+      * restarting CAMEO. A null file clears the previous run's config.
      */
     static void useGeneratedConfig(File file) {
-        generatedXmlUrl = toFileUrl(file);
+          generatedXmlUrl = file == null ? null : toFileUrl(file);
         profilesStale = true; // same path every run, new content: see createParticipant()
     }
 
@@ -231,10 +230,6 @@ public final class DDSTopicPublisher {
      * Logs to CAMEO's Notification window, or stdout outside CAMEO.
      */
     private static void log(String msg) {
-        try {
-            Application.getInstance().getGUILog().log(msg);
-        } catch (Exception ignored) {
-            System.out.println(msg);
-        }
+        CameoLog.log(msg);
     }
 }

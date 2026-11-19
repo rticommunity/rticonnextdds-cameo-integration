@@ -17,8 +17,11 @@
 // No topic/participant/reader/payload/port names hardcoded here or in
 // DdsInboundInjector — every inbound «DDS_Topic» of the Blocks being
 // simulated is subscribed and injected automatically, out of the port on
-// this Block that the model connects to each subscriber. See
-// DdsInboundInjector.java's header comment for the full design (why ALH
+// this Block that the model connects to each subscriber.
+// Samples are taken directly from DDS on this simulation thread; there is
+// no intermediate queue. Reader QoS must retain data between poll cycles.
+//
+// See DdsInboundInjector.java's header comment for the full design (why ALH
 // itself is passed in rather than reconstructed, and why a script has to
 // be placed somewhere with a repeating trigger).
 try {

@@ -13,7 +13,8 @@
 /*
  * DdsRuntimeConfig — generates the DDS XML configuration from the model
  * every time a simulation starts, so the configuration RTI runs can never be
- * out of date with the model and there is no hand-managed XML file to pick.
+ * out of date with the model. An optional XML file supplies QoS libraries
+ * without replacing the model's types or topology.
  *
  * Called once per run from RegisterDdsEngineListener.groovy. Produces:
  *   - the TopicModel for this run (scan of the project's «DDS_Domain»),
@@ -48,17 +49,44 @@ import java.util.List;
 public final class DdsRuntimeConfig {
 
     private static volatile TopicModel currentModel;
+    private static volatile QosXmlSelection selectedQosXml;
 
     private DdsRuntimeConfig() {
     }
 
+    static void useQosXml(File file, String profileName) throws Exception {
+        if (System.getProperty("com.rti.connext.cameo.xmlConfig") != null) {
+            throw new IllegalStateException("Remove -Dcom.rti.connext.cameo.xmlConfig before selecting a QoS-only XML file.");
+        }
+        if (!QosXmlFile.read(file).getProfileNames().contains(profileName)) {
+            throw new IllegalArgumentException("QoS profile not found: " + profileName);
+        }
+        selectedQosXml = new QosXmlSelection(file.getAbsoluteFile(), profileName);
+    }
+
+    public static void useModelQos() {
+        selectedQosXml = null;
+    }
+
+    public static boolean hasExternalQos() {
+        return selectedQosXml != null;
+    }
+
+    static boolean isQosProfileSelected(File file, String profileName) {
+        QosXmlSelection selection = selectedQosXml;
+        return selection != null && selection.file.equals(file.getAbsoluteFile())
+                && selection.profileName.equals(profileName);
+    }
+
     /**
-     * Scans the project's «DDS_Domain», generates the DDS XML from it and
-     * makes it the config DDSTopicPublisher loads. Logs and returns false
-     * (leaving no generated config) if the model can't produce one.
+     * Generates DDS XML at simulation start using model types/topology and
+     * either model QoS or a loaded QoS XML profile.
+     *
+     * @return true on success; false after logging a preparation error
      */
     public static boolean prepare() {
         currentModel = null;
+        DDSTopicPublisher.useGeneratedConfig(null);
         Project project = Application.getInstance().getProject();
         Element root = project == null ? null : project.getPrimaryModel();
         if (root == null) {
@@ -86,20 +114,32 @@ public final class DdsRuntimeConfig {
         }
 
         TopicModel model = ModelTopicScanner.scan(domain);
-        String xml = DdsXmlGenerator.generate(model, domainId, chooseQosProfile(root));
 
         File file = new File(new File(System.getProperty("java.io.tmpdir"), "rti_cameo"),
                 safeFileName(project.getName()) + "_dds_generated.xml");
         try {
+            QosXmlSelection selection = selectedQosXml;
+            String xml;
+            if (selection == null) {
+                // Use the model's default (or only) QoS profile, if available.
+                xml = DdsXmlGenerator.generate(model, domainId, chooseQosProfile(root));
+            } else {
+                // External XML supplies QoS only; types and topology stay model-derived.
+                QosXmlFile qos = QosXmlFile.read(selection.file);
+                xml = qos.mergeInto(DdsXmlGenerator.generateWithExternalQos(model, domainId, selection.profileName),
+                        selection.profileName);
+                log("[RTI Connext] QoS from '" + selection.file + "', profile '" + selection.profileName + "'.");
+            }
             Files.createDirectories(file.getParentFile().toPath());
             Files.write(file.toPath(), xml.getBytes(StandardCharsets.UTF_8));
         } catch (Exception ex) {
-            log("[RTI Connext] ERROR: could not write the generated DDS config to "
+            log("[RTI Connext] ERROR: could not prepare the generated DDS config at "
                     + file.getAbsolutePath() + " -- " + ex);
             return false;
         }
 
         currentModel = model;
+        // Loaded on first DDS use, unless the xmlConfig JVM property overrides it.
         DDSTopicPublisher.useGeneratedConfig(file);
         log("[RTI Connext] Generated DDS config from the model (domain '" + domain.getName()
                 + "', id " + domainId + "): " + file.getAbsolutePath());
@@ -138,11 +178,17 @@ public final class DdsRuntimeConfig {
         return name == null || name.isEmpty() ? "project" : name.replaceAll("[^A-Za-z0-9._-]", "_");
     }
 
-    private static void log(String msg) {
-        try {
-            Application.getInstance().getGUILog().log(msg);
-        } catch (Exception ignored) {
-            System.out.println(msg);
+    private static final class QosXmlSelection {
+        private final File file;
+        private final String profileName;
+
+        private QosXmlSelection(File file, String profileName) {
+            this.file = file;
+            this.profileName = profileName;
         }
+    }
+
+    private static void log(String msg) {
+        CameoLog.log(msg);
     }
 }

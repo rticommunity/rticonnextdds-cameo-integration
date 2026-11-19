@@ -12,8 +12,7 @@
 
 /*
  * ElementPickerUtil — single-element picker on CAMEO's own
- * ElementSelectionDlg, used by the Generate DDS XML and Import QoS Profile
- * actions.
+ * ElementSelectionDlg, used by the Generate DDS XML action.
  *
  * ElementSelectionDlg browses the model tree rather than a list, so the
  * choice is restricted to the given candidates with a TypeFilter whose
