@@ -12,8 +12,8 @@
 
 /*
  * DdsInboundInjector — injects DDS samples received for the running
- * simulation into it as Signals (CAMEO 2026x; the src24x copy differs only in
- * the fUML imports, which moved package in CST 2026x).
+ * simulation into it as Signals. FumlValueBridge isolates version-specific
+ * fUML types from this shared polling and injection logic.
  *
  * Driven entirely by ModelTopicScanner: every «DDS_Topic» Signal that a Block
  * in the simulation receives (an "in" FlowProperty on one of its ports) is
@@ -47,9 +47,6 @@ import com.nomagic.uml2.ext.magicdraw.classes.mdkernel.Element;
 import com.rti.connext.cameo.core.ModelTopicScanner;
 import com.rti.connext.cameo.core.SimulationScope;
 import com.rti.connext.cameo.core.TopicModel;
-
-import com.nomagic.magicdraw.simulation.fuml.classes.Object_;
-import com.nomagic.magicdraw.simulation.fuml.behaviors.communications.SignalInstance;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -160,10 +157,13 @@ public final class DdsInboundInjector {
      * from {@code target} (the harness object). See the class comment for why
      * {@code alh} must be the caller's own instance.
      */
-    public static void pollAndInjectAll(ALH alh, Object_ target) {
+    public static void pollAndInjectAll(ALH alh, Object target) {
         if (target == null) {
             log("[DDS Inject] ERROR: target is null -- this script isn't running inside a live simulation execution.");
             return;
+        }
+        if (!FumlValueBridge.isRuntimeObject(target)) {
+            throw new IllegalArgumentException("DDS injection requires a live simulation object as target.");
         }
         TopicModel model = getOrScanTopicModel();
         for (TopicModel.Topic topic : model.topics.values()) {
@@ -183,7 +183,7 @@ public final class DdsInboundInjector {
         }
     }
 
-    private static void injectOne(ALH alh, Object_ target, TopicModel model, TopicModel.Topic topic,
+    private static void injectOne(ALH alh, Object target, TopicModel model, TopicModel.Topic topic,
                                    String blockName, String jsonPayload) {
         Set<String> ports = topic.injectionPorts.get(blockName);
         if (ports == null || ports.isEmpty()) {
@@ -207,12 +207,12 @@ public final class DdsInboundInjector {
         }
 
         for (String portName : ports) {
-            SignalInstance signalInstance = buildSignal(alh, model, topic, type, json);
+            Object signalInstance = buildSignal(alh, model, topic, type, json);
             if (signalInstance == null) {
                 return; // already logged; would fail the same way for every port
             }
             try {
-                alh.sendSignal(signalInstance, target, portName);
+                FumlValueBridge.sendSignal(alh, signalInstance, target, portName);
                 CameoLog.trace(() -> "[DDS Inject] Injected '" + topic.topicName + "' into '" + blockName + "' via port '" + portName + "'.");
             } catch (Exception ex) {
                 log("[DDS Inject] ERROR: sending '" + topic.topicName + "' via port '" + portName
@@ -228,16 +228,16 @@ public final class DdsInboundInjector {
      * each Port gets its own copy rather than sharing one object (a Block
      * normally has one connected Port, but nothing stops a model wiring two).
      */
-    private static SignalInstance buildSignal(ALH alh, TopicModel model, TopicModel.Topic topic,
+    private static Object buildSignal(ALH alh, TopicModel model, TopicModel.Topic topic,
                                               TopicModel.StructType type, JsonObject json) {
-        Object_ payloadObject = createAndFill(alh, model, type, json);
+        Object payloadObject = createAndFill(alh, model, type, json);
         if (payloadObject == null) {
             return null;
         }
 
-        SignalInstance signalInstance;
+        Object signalInstance;
         try {
-            signalInstance = alh.createSignal(topic.topicName);
+            signalInstance = FumlValueBridge.createSignal(alh, topic.topicName);
         } catch (Exception ex) {
             log("[DDS Inject] ERROR: ALH.createSignal('" + topic.topicName + "') threw -- " + ex);
             return null;
@@ -248,7 +248,7 @@ public final class DdsInboundInjector {
         }
 
         try {
-            alh.setValue(signalInstance, ModelTopicScanner.TOPIC_DATA_ATTRIBUTE_NAME, payloadObject);
+            FumlValueBridge.setFieldValue(alh, signalInstance, ModelTopicScanner.TOPIC_DATA_ATTRIBUTE_NAME, payloadObject);
         } catch (Exception ex) {
             log("[DDS Inject] ERROR: ALH.setValue(signalInstance, \"data\", payloadObject) threw -- " + ex);
             return null;
@@ -264,10 +264,10 @@ public final class DdsInboundInjector {
      * the instance itself can't be created; a single bad field is logged and
      * skipped.
      */
-    private static Object_ createAndFill(ALH alh, TopicModel model, TopicModel.StructType type, JsonObject json) {
-        Object_ instance;
+    private static Object createAndFill(ALH alh, TopicModel model, TopicModel.StructType type, JsonObject json) {
+        Object instance;
         try {
-            instance = alh.createObject(type.name);
+            instance = FumlValueBridge.createObject(alh, type.name);
         } catch (Exception ex) {
             log("[DDS Inject] ERROR: ALH.createObject('" + type.name + "') threw -- " + ex);
             return null;
@@ -284,7 +284,7 @@ public final class DdsInboundInjector {
                 continue;
             }
             try {
-                alh.setValue(instance, field.name, toSimValue(alh, model, field, value));
+                FumlValueBridge.setFieldValue(alh, instance, field.name, toSimValue(alh, model, field, value));
             } catch (Exception ex) {
                 log("[DDS Inject]   ERROR setting " + type.name + "." + field.name + " = " + value + " -- " + ex);
             }
@@ -313,7 +313,7 @@ public final class DdsInboundInjector {
             if (nestedType == null) {
                 throw new IllegalStateException("no scanned type '" + field.nestedStructName + "'");
             }
-            Object_ nested = createAndFill(alh, model, nestedType, value.getAsJsonObject());
+            Object nested = createAndFill(alh, model, nestedType, value.getAsJsonObject());
             if (nested == null) {
                 throw new IllegalStateException("could not create '" + field.nestedStructName + "'");
             }

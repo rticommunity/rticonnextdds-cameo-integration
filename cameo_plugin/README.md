@@ -353,88 +353,76 @@ schema URL. `NDDSHOME` must point to a readable Connext installation.
 
 ---
 
-## Direct DDS I/O regression test
-
-After building for 2024x, run from `cameo_plugin` in PowerShell with
-`CAMEO_HOME`, `NDDSHOME`, `RTI_LICENSE_FILE` and RTI's native-library `PATH`
-configured as for the build:
-
-```powershell
-$cp = "build\2024x\classes;build\2024x\nddsjava.jar;$env:CAMEO_HOME\lib\*"
-javac --release 17 -encoding UTF-8 -classpath $cp -d build\direct-io-tests tests\DirectDdsIoTest.java
-if ($LASTEXITCODE -ne 0) { throw "Test compilation failed" }
-java -classpath "build\direct-io-tests;$cp" com.rti.connext.cameo.dds.DirectDdsIoTest
-if ($LASTEXITCODE -ne 0) { throw "Direct DDS I/O test failed" }
-```
-
-The test uses real Connext entities, shared-memory transport only, no discovery
-peers, and a unique topic. A test-only console logger replaces GUI logging;
-it is not packaged into the plugin. Cases cover batch delivery, independent
-readers, same-thread consumption, empty polls, loan return after a consumer
-exception, invalid-data filtering and shutdown/recreation.
-
-This does not exercise CST's live payload serialization or model port delivery.
-After installing, run the existing model, send a DDS-topic Signal, and verify
-publication and reception/injection. The two embedded Groovy behaviors do not
-need modification for this change.
-
----
-
-## Adapt an existing Activity to receive and send DDS data
+## Adapt an existing Activity Diagram to receive and send DDS data
 
 An Activity input parameter does not receive Signals automatically. To turn an
 existing transformation Activity into a DDS-driven behavior, put the receiving,
-processing and sending actions in that same Activity. No wrapper Activity such
-as `CallCopyData` is needed once these actions are in place.
+processing and sending actions in that same Activity. No wrapper Activity is
+needed once these actions are in place.
 
-This example starts with `CopyData`, owned by the service Block
-`ShapeApplicationBlock`. Its existing Groovy **Opaque Action** has an input pin
-`src` and an output pin `dest`, both typed by `ShapeType`. The topic Signals are
-`Square` and `Circle`, each with a `data:ShapeType` attribute. Substitute your
-own names when adapting another model.
+**The names below are examples, not required model names.** For illustration,
+the Activity might be named `CopyData`, owned by a service Block named
+`ShapeApplicationBlock`. Its Groovy **Opaque Action**, for example `TransformData`,
+has input/output pins such as `src` and `dest`, typed by a payload Block such as
+`ShapeType`. Incoming/outgoing topic Signals could be `Square` and `Circle`.
+Use the corresponding elements and names from your own model.
+
+The topic Signal attribute **must still be named `data`**, typed by your payload
+Block (for example, `data:ShapeType`). The inherited harness elements mentioned
+below, such as `runTest` and `dds-bus-sender`, retain their defined names.
 
 1. **Open the existing Activity diagram.** Keep the transformation action,
-  its Groovy body, and its `src` and `dest` pins. Save a backup before changing
+  its Groovy body, and its input/output pins (for example, `src` and `dest`).
+  Save a backup before changing
   the Activity's parameter interface; callers using that interface will need
   updating.
-2. **Remove the old Activity parameters.** Delete the boundary **Activity
-  Parameter Nodes** `inSq` and `outCirc` and their connecting Object Flows.
+2. **Remove the old Activity parameters.** If the Activity currently receives
+  and returns its payload through parameters, delete those boundary **Activity
+  Parameter Nodes** (for example, `inSq` and `outCirc`) and their connecting Object Flows.
   Also remove the corresponding owned **Parameters** from the Activity's
   Specification, not just their diagram symbols. Keep the transformation
-  action's `src` and `dest` pins.
+  action's input/output pins.
 3. **Add the receiver.** From the diagram palette, add an **Accept Event
-  Action** named `ReceivingSquare`. In its Specification, configure a
-  **Trigger** with a **Signal Event** whose **Signal = Square**. Set
+  Action**, giving it a descriptive name such as `ReceivingSquare`.
+  In its Specification, configure a **Trigger** with a **Signal Event** whose
+  **Signal** is your incoming topic Signal (for example, `Square`). Set
   **Is Unmarshall = true**. Ensure its result/output pin is named `data` and
-  has **Type = ShapeType**. Unmarshalling outputs the Signal's `data` payload,
-  rather than the whole `Square` Signal instance.
-4. **Add the sender.** Add a **Send Signal Action** with **Signal = Circle**.
+  has your payload Block as its **Type** (for example, `ShapeType`).
+  Unmarshalling outputs the Signal's `data` payload, rather than the whole
+  Signal instance.
+4. **Add the sender.** Add a **Send Signal Action** for your outgoing topic
+  Signal (for example, **Signal = Circle**, with the action named `SendCircle`).
   Set **On Port** to the service Block's publishing port, for example
   `CircleOutput` (or `Circle` if that is your port's name), not the Test
   Context's `dds-bus-sender`. Ensure the action's `data` argument/input pin
-  has **Type = ShapeType**.
-5. **Connect the pins with Object Flows**, not Control Flows:
+  has your payload Block as its **Type** (for example, `ShapeType`).
+5. **Connect the pins with Object Flows**, not Control Flows. Using the example
+  action and pin names:
 
   ```text
-  ReceivingSquare.data --> transformation.src
-  transformation.dest --> Send Circle.data
+  ReceivingSquare.data --> TransformData.src
+  TransformData.dest --> SendCircle.data
   ```
 
-  Leave `ReceivingSquare` **without incoming control edges** so it remains
+  Leave the receiving action (for example, `ReceivingSquare`)
+  **without incoming control edges** so it remains
   enabled for further Signals while the Activity runs. This chain needs no
   Initial Node, Final Node, Merge Node or loop-back edge. Remove any such
-  nodes added solely for the earlier loop experiment. The inherited harness
+  nodes added solely to implement a receive loop. The inherited harness
   polls DDS; it does not restart the transformation Activity for each sample.
-6. **Assign the service behavior.** Open **ShapeApplicationBlock >
-  Specification > Classifier Behavior** and select the `CopyData` **Activity**,
-  not its diagram. Keep the **Test Context's** Classifier Behavior locally
+6. **Assign the service behavior.** Open your service Block's
+  **Specification > Classifier Behavior** (for example, on `ShapeApplicationBlock`)
+  and select your processing **Activity** (for example, `CopyData`), not its diagram.
+  Keep the **Test Context's** Classifier Behavior locally
   unset and retain its executable `runTest` Method, as described in
-  [Create a Test Context](#4-create-a-test-context). If `CallCopyData` exists,
+  [Create a Test Context](#4-create-a-test-context). If a wrapper Activity
+  exists (for example, `CallCopyData`),
   delete that wrapper only after replacing its receive/send functionality and
   changing the service's Classifier Behavior reference. Do not delete
-  `CopyData` itself.
+  the processing Activity itself.
 7. **Run through the Test Context.** Restart its Simulation Configuration,
-  rather than simulating `CopyData` by itself. Publish several external
-  `Square` samples and verify that the transformation runs for successive
-  samples and that an external DDS reader receives the resulting `Circle`
-  samples. Entity creation alone does not verify this path.
+  rather than simulating the processing Activity by itself. Publish several
+  samples on the incoming topic (for example, `Square`) and verify that the
+  transformation runs for successive samples and that an external DDS reader
+  receives the resulting outgoing samples (for example, on `Circle`).
+  Entity creation alone does not verify this path.

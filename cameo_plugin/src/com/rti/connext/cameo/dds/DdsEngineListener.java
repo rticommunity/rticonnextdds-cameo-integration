@@ -12,8 +12,8 @@
 
 /*
  * DdsEngineListener — publishes a DDS sample whenever the running simulation
- * sends a «DDS_Topic» Signal (CAMEO 2026x; the src24x copy differs only in
- * the SignalInstance import, which moved package in CST 2026x).
+ * sends a «DDS_Topic» Signal. FumlValueBridge adapts the version-specific
+ * SignalInstance callback to this shared implementation.
  *
  * Registered once per run by groovy/RegisterDdsEngineListener.groovy on both
  * the EngineListener and the SimulationExecutionListener of the session.
@@ -44,7 +44,6 @@ import com.nomagic.magicdraw.core.Application;
 import com.nomagic.magicdraw.core.Project;
 import com.nomagic.magicdraw.simulation.engine.EngineListener;
 import com.nomagic.magicdraw.simulation.execution.SimulationExecution;
-import com.nomagic.magicdraw.simulation.execution.SimulationExecutionListener;
 import com.nomagic.magicdraw.simulation.execution.session.SimulationSession;
 import com.nomagic.uml2.ext.jmi.helpers.StereotypesHelper;
 import com.nomagic.uml2.ext.magicdraw.actions.mdbasicactions.SendSignalAction;
@@ -57,16 +56,11 @@ import com.rti.connext.cameo.core.JsonPayloadBuilder;
 import com.rti.connext.cameo.core.ModelTopicScanner;
 import com.rti.connext.cameo.core.TopicModel;
 
-import com.nomagic.magicdraw.simulation.fuml.behaviors.communications.SignalInstance;
-
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentLinkedDeque;
 
-// The SignalInstance type in eventTriggered()'s required override signature
-// is marked deprecated by CST; overriding it is unavoidable.
-@SuppressWarnings("deprecation")
-public class DdsEngineListener extends SimulationExecutionListener implements EngineListener {
+public class DdsEngineListener extends FumlValueBridge.SignalListener implements EngineListener {
 
     private static final String BLOCK_STEREOTYPE = "Block";
 
@@ -171,8 +165,7 @@ public class DdsEngineListener extends SimulationExecutionListener implements En
     // -------------------------------------------------------------------
 
     @Override
-    @SuppressWarnings("deprecation")
-    public void eventTriggered(SignalInstance signalInstance) {
+    protected void onSignalTriggered(Object signalInstance) {
         try {
             Signal signal = FumlValueBridge.getSignal(signalInstance);
             if (signal == null) {

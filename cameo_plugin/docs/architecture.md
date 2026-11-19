@@ -42,10 +42,13 @@ The model is the single source of truth. The plugin reads it in two ways:
 
 ## Code layout
 
-`src/` is shared by both CAMEO versions. `src24x/` and `src26x/` hold the three
-classes that touch CST's fUML runtime types, which moved package between
-2024x and 2026x; the two copies differ only in imports and header comments.
-`build.bat <version>` compiles `src/` plus the matching override.
+`src/` contains the shared runtime, including `DdsEngineListener` and
+`DdsInboundInjector`. Only `FumlValueBridge` lives in `src24x/` and `src26x/`:
+CST's fUML types moved packages between releases. This small adapter handles
+typed value access, object/signal creation, sending, and the typed Signal
+callback. Its nested `SignalListener` forwards callbacks to the shared listener
+without reflection. `build.bat <version>` compiles `src/` plus the matching
+adapter. Existing Groovy entry points and behaviors remain unchanged.
 
 | Class | Role |
 |---|---|
@@ -66,9 +69,9 @@ classes that touch CST's fUML runtime types, which moved package between
 | `GenerateDdsXmlAction` | Menu action: export the XML to a file. |
 | `LoadQosXmlAction` | Owns the QoS submenu: load XML, select a library/profile, or return to model QoS without modifying the model. |
 | `ElementPickerUtil` | Element-selection dialog used by the menu actions. |
-| **`src24x` / `src26x`** | |
 | `DdsEngineListener` | Matches outgoing DDS-topic actions to their Signal callbacks, writes immediately, and cleans up at execution end. |
 | `DdsInboundInjector` | Polls in-scope readers and injects samples directly into the simulation. |
+| **`src24x` / `src26x`** | |
 | `FumlValueBridge` | The only place that touches CST's internal fUML value types (see [decisions](#design-decisions)). |
 
 The model side of the plugin — two Opaque Behaviors in the test harness —

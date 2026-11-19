@@ -29,8 +29,8 @@
 ::                such as 2024x's bundled JDK 17 cannot read ("class file has
 ::                wrong version 65.0, should be 61.0" — confirmed live).
 ::
-:: The two versions differ only in src24x\ vs src26x\ (fUML runtime types
-:: moved package between CST versions) and the output folder.
+:: The two versions select their FumlValueBridge from src24x\ or src26x\
+:: (fUML runtime types moved package). All DDS runtime logic is shared in src\.
 ::
 :: Output (relative to this script)
 ::   build\<version>\nddsjava.jar         — copied from %NDDSHOME%\lib\java\
@@ -256,6 +256,8 @@ echo.
     src\com\rti\connext\cameo\core\SimulationScope.java ^
     src\com\rti\connext\cameo\dds\DDSTopicPublisher.java ^
     src\com\rti\connext\cameo\dds\DDSTopicSubscriber.java ^
+    src\com\rti\connext\cameo\dds\DdsEngineListener.java ^
+    src\com\rti\connext\cameo\dds\DdsInboundInjector.java ^
     src\com\rti\connext\cameo\dds\DdsXmlGenerator.java ^
     src\com\rti\connext\cameo\dds\DdsRuntimeConfig.java ^
     src\com\rti\connext\cameo\dds\CameoLog.java ^
@@ -263,9 +265,7 @@ echo.
     src\com\rti\connext\cameo\dds\LoadQosXmlAction.java ^
     src\com\rti\connext\cameo\dds\ElementPickerUtil.java ^
     src\com\rti\connext\cameo\dds\GenerateDdsXmlAction.java ^
-    %SRC_VERSION_DIR%\com\rti\connext\cameo\dds\FumlValueBridge.java ^
-    %SRC_VERSION_DIR%\com\rti\connext\cameo\dds\DdsEngineListener.java ^
-    %SRC_VERSION_DIR%\com\rti\connext\cameo\dds\DdsInboundInjector.java
+    %SRC_VERSION_DIR%\com\rti\connext\cameo\dds\FumlValueBridge.java
 
 if errorlevel 1 (
     echo.
